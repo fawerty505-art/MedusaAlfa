@@ -44,7 +44,7 @@
 
 ```bash
 # 1. Клонувати
-git clone <URL_ВАШОГО_РЕПОЗИТОРІЮ> MedusaAlfa
+git clone https://github.com/fawerty505-art/MedusaAlfa MedusaAlfa
 cd MedusaAlfa
 
 # 2. Віртуальне середовище + залежності
