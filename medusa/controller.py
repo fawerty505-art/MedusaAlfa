@@ -46,9 +46,11 @@ class GestureDroneController:
         """Увімкнути/вимкнути керування жестами (клавіша G)."""
         self.enabled = not self.enabled
         if not self.enabled:
-            # при вимкненні одразу "відпускаємо" всі осі:
-            # далі симулятор сам плавно перейде в hover (safety-timeout 0.5 с)
+            # одразу відпускаємо всі осі явним hover; далі DroneLink мовчить
+            # (вектор застаріває за max_age) і симулятор тримає hover сам
             self.mapper.reset()
+            self.last_command = HOVER_COMMAND
+            self.link.send(HOVER_COMMAND)
         return self.enabled
 
     # ------------------------------------------------------------------ кадр
@@ -58,11 +60,13 @@ class GestureDroneController:
         `hands` — або список рук ({"points", "label"}), або словник результату
         MedusaEye (`assoc`) з ключем "owner_hands" — приймаються обидва варіанти.
         """
+        owner_present = None
         if isinstance(hands, dict):
+            owner_present = hands.get("owner_body") is not None
             hands = hands.get("owner_hands") or []
 
         now = now if now is not None else time.monotonic()
-        command = self.mapper.update(hands, frame_shape, now)
+        command = self.mapper.update(hands, frame_shape, now, owner_present=owner_present)
         self.last_command = command
         self.last_update_at = now
 

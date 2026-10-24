@@ -316,7 +316,8 @@ class MedusaEye:
         # 2. YOLOv8 Pose (для точного трекінгу обличчя при поворотах/нахилах)
         print("[2/5] Ініціалізація YOLOv8-pose (ByteTrack, imgsz=320)...")
         ensure_project_dirs()
-        self.yolo_pose = YOLO(str(YOLO_POSE_PATH)) if YOLO_POSE_PATH.exists() else YOLO("yolov8n-pose.pt")
+        # якщо файлу немає — Ultralytics сам завантажить його саме в models/
+        self.yolo_pose = YOLO(str(YOLO_POSE_PATH))
         self.yolo_pose.track(test_frame, persist=True, imgsz=YOLO_IMGSZ, verbose=False)
         print("   ✓ YOLOv8n-pose готова і прогріта (~14 мс)")
 
@@ -798,6 +799,7 @@ class MedusaEye:
                             self.last_action = 0
                         if command.label != last_label:
                             print(f"🖐  {command.posture} -> {command.label}  {command.to_text()}"
+                                  f"  [{command.origin}]"
                                   f"  (link: {self.controller.link.status_text()})")
                             last_label = command.label
                 self.gesture_command = command

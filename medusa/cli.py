@@ -70,6 +70,8 @@ def build_parser(default_source: str = "webcam") -> argparse.ArgumentParser:
     gst.add_argument("--yaw-gain", type=float, default=55.0, help="°/с на максимальному відхиленні (default: 55)")
     gst.add_argument("--yaw-deadzone", type=float, default=0.22, help="мертва зона повороту 0..1 (default: 0.22)")
     gst.add_argument("--yaw-invert", action="store_true", help="інвертувати напрямок повороту")
+    gst.add_argument("--mirrored", action="store_true",
+                     help="кадр дзеркальний (selfie-режим); за замовчуванням webcam/ESP32 — недзеркальні")
     gst.add_argument("--approach-speed", type=float, default=1.5, help="м/с, жест V (default: 1.5)")
     gst.add_argument("--retreat-speed", type=float, default=1.2, help="м/с, жест три пальці (default: 1.2)")
     gst.add_argument("--climb-speed", type=float, default=0.9, help="м/с вгору (default: 0.9)")
@@ -93,6 +95,7 @@ def _gesture_config(args: argparse.Namespace) -> GestureConfig:
         yaw_gain=args.yaw_gain,
         yaw_deadzone=args.yaw_deadzone,
         yaw_invert=args.yaw_invert,
+        image_mirrored=args.mirrored,
         stable_time=args.stable_time,
         auto_land_after=args.auto_land,
         prefer_hand="" if args.hand == "any" else args.hand,
@@ -110,7 +113,7 @@ def _banner(args, http_url: Optional[str], ws_url: str) -> None:
     print(f"  Жести            : {'OFF (--no-gestures)' if args.no_gestures else 'ON'}"
           f" | рука: {args.hand} | стабільність {args.stable_time:.2f} c")
     print("-" * 72)
-    print("  Жести: ✋ hover  ✊ land  ☝️ takeoff  ✌️ вперед  🤟 назад  🖖 вгору  👍 вниз")
+    print("  Жести: ✋ hover  ✊ land  ☝️ takeoff  ✌️ вперед  🤟 назад  👍 вгору  🤘 вниз")
     print("  Клавіші: [G] жести ON/OFF  [R] реєстрація  [D] debug  [C] скинути  [Q] вихід")
     print("=" * 72)
 

@@ -73,6 +73,26 @@ class ControllerTests(unittest.TestCase):
         self.assertFalse(self.controller.toggle())
         self.assertTrue(self.controller.toggle())
 
+    def test_toggle_off_sends_explicit_hover(self):
+        self.controller.update(assoc(make_hand(fingers=(1, 1, 0, 0))), FRAME_SHAPE, now=1.0)
+        self.controller.toggle()                       # OFF
+        self.assertEqual(self.link.sent[-1].vector, (0.0, 0.0, 0.0, 0.0, HOVER))
+
+    def test_owner_visible_without_hands_does_not_land(self):
+        controller = GestureDroneController(
+            self.link, GestureMapper(GestureConfig(stable_time=0.0, auto_land_after=1.0)))
+        controller.update(assoc(make_hand()), FRAME_SHAPE, now=0.0)
+        no_hands = {"owner_body": {"box": (0, 0, 10, 10)}, "owner_hands": []}
+        cmd = controller.update(no_hands, FRAME_SHAPE, now=30.0)
+        self.assertEqual(cmd.vector[4], HOVER)
+
+    def test_owner_lost_lands(self):
+        controller = GestureDroneController(
+            self.link, GestureMapper(GestureConfig(stable_time=0.0, auto_land_after=1.0)))
+        controller.update(assoc(make_hand()), FRAME_SHAPE, now=0.0)
+        cmd = controller.update({"owner_body": None, "owner_hands": []}, FRAME_SHAPE, now=5.0)
+        self.assertEqual(cmd.vector[4], LAND)
+
     def test_toggle_off_resets_mapper_state(self):
         self.controller.update(assoc(make_hand(fingers=(1, 1, 1, 1))), FRAME_SHAPE, now=1.0)
         self.controller.toggle()                       # OFF

@@ -26,8 +26,14 @@ PANEL_WIDTH = 330
 LINE_HEIGHT = 16
 
 
+def _ascii(text: str) -> str:
+    """cv2.putText (шрифти Hershey) не вміє кирилицю/°/емодзі — малює '???'. Лишаємо ASCII."""
+    text = text.replace("\u00b0", " deg")
+    return text.encode("ascii", "replace").decode("ascii")
+
+
 def _put(image, text: str, x: int, y: int, color, scale: float = 0.38, thickness: int = 1) -> None:
-    cv2.putText(image, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
+    cv2.putText(image, _ascii(text), (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
 
 
 def _panel(image, x: int, y: int, width: int, height: int, alpha: float = 0.72) -> None:
@@ -48,7 +54,7 @@ def _panel(image, x: int, y: int, width: int, height: int, alpha: float = 0.72) 
 
 def _telemetry_line(telemetry: Optional[Dict[str, Any]]) -> str:
     if not telemetry:
-        return "SIM     : очікування телеметрії..."
+        return "SIM     : waiting for telemetry..."
     status = str(telemetry.get("status", "?"))
     alt = telemetry.get("y")
     heading = telemetry.get("heading")
@@ -56,7 +62,7 @@ def _telemetry_line(telemetry: Optional[Dict[str, Any]]) -> str:
     if isinstance(alt, (int, float)):
         parts.append(f"ALT {max(0.0, float(alt)):.2f} m")
     if isinstance(heading, (int, float)):
-        parts.append(f"HDG {float(heading):.0f}°")
+        parts.append(f"HDG {float(heading):.0f} deg")
     return "  ".join(parts)
 
 
@@ -89,7 +95,7 @@ def draw_drone_panel(
     _put(frame, "GESTURE FLIGHT CONTROL", tx, ty, COLOR_ACCENT, 0.40, 1)
     ty += LINE_HEIGHT
 
-    state_text = "ON" if enabled else "OFF  (натисніть G)"
+    state_text = "ON" if enabled else "OFF  (press G)"
     _put(frame, "CONTROL : ", tx, ty, COLOR_MUTED)
     _put(frame, state_text, tx + 68, ty, COLOR_OK if enabled else COLOR_WARN)
     ty += LINE_HEIGHT
@@ -114,7 +120,7 @@ def draw_drone_panel(
         _put(frame, "LINK    : ", tx, ty, COLOR_MUTED)
         _put(frame, f"{status}  {getattr(link, 'url', '')}", tx + 68, ty, color)
     else:
-        _put(frame, "LINK    : вимкнено (--no-link)", tx, ty, COLOR_BAD)
+        _put(frame, "LINK    : not available", tx, ty, COLOR_BAD)
     ty += LINE_HEIGHT
 
     _put(frame, _telemetry_line(telemetry), tx, ty, COLOR_MUTED, 0.36)
@@ -133,4 +139,4 @@ def draw_action_flash(frame, command: Optional[DroneCommand], now: float, last_a
     x = (w - tw) // 2
     y = int(h * 0.20)
     _panel(frame, x - 16, y - th - 10, tw + 32, th + 22, alpha=0.6)
-    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 2, cv2.LINE_AA)
+    cv2.putText(frame, _ascii(text), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 2, cv2.LINE_AA)

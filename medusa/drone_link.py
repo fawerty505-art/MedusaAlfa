@@ -45,6 +45,7 @@ class DroneLink:
         reconnect_delay: float = 1.0,
         open_timeout: float = 3.0,
         verbose: bool = True,
+        max_age: float = 0.4,
     ) -> None:
         if websockets is None:
             raise RuntimeError(
@@ -55,8 +56,13 @@ class DroneLink:
         self.reconnect_delay = max(0.2, float(reconnect_delay))
         self.open_timeout = max(0.5, float(open_timeout))
         self.verbose = verbose
+        # Вектор, старший за max_age секунд, НЕ повторюється: якщо головний цикл завис
+        # або керування вимкнули, потік мовчить і спрацьовує safety-timeout симулятора
+        # (0.5 с -> hover). Раніше останній вектор слався вічно.
+        self.max_age = max(0.05, float(max_age))
 
         self._pending: Optional[List[float]] = None
+        self._pending_at = 0.0
         self._pending_lock = threading.Lock()
         self._connected = threading.Event()
         self._stopping = threading.Event()
@@ -138,6 +144,7 @@ class DroneLink:
         vector = coerce_vector(command)
         with self._pending_lock:
             self._pending = vector
+            self._pending_at = time.monotonic()
         return vector
 
     def hover(self) -> List[float]:
@@ -207,7 +214,8 @@ class DroneLink:
         interval = 1.0 / self.rate_hz
         while True:
             with self._pending_lock:
-                vector = list(self._pending) if self._pending else None
+                fresh = self._pending is not None and (time.monotonic() - self._pending_at) <= self.max_age
+                vector = list(self._pending) if fresh else None
             if vector is not None:
                 await ws.send(json.dumps(vector))
                 self.sent_count += 1

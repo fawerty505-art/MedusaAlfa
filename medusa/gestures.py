@@ -21,26 +21,35 @@
     ┌───────────────────────────────┬──────────────┬───────────────────────────┐
     │ Жест                          │ Вектор       │ Дія дрона                 │
     ├───────────────────────────────┼──────────────┼───────────────────────────┤
-    │ ✋ Долоня (4 пальці + великий) │ [0,0,0,0,0]  │ HOVER — тримати позицію   │
-    │ ✊ Кулак (0)                   │ [0,0,0,0,2]  │ LAND — сісти             │
+    │ ✋ Долоня (4 пальці, великий   │ [0,0,0,0,0]  │ HOVER — тримати позицію   │
+    │    не враховується)           │              │                           │
+    │ ✊ Кулак (0)                   │ [0,0,0,0,2]  │ LAND — сісти              │
     │ ☝️ Вказівний (1)               │ [0,0,0,0,1]  │ TAKEOFF — злетіти на 2 м  │
     │ ✌️ V / два (2)                 │ [+vx,0,0,0,0]│ FORWARD — наблизитися     │
     │ 🤟 Три (3)                     │ [-vx,0,0,0,0]│ BACKWARD — відлетіти назад│
-    │ 👍 Тільки великий палець       │ [0,0,+vz,0,0]│ CLIMB — вище             │
-    │ 🖖 Чотири (без великого)       │ [0,0,-vz,0,0]│ DESCEND — нижче           │
+    │ 👍 Тільки великий палець       │ [0,0,+vz,0,0]│ CLIMB — вище              │
+    │ 🤘 Вказівний + мізинець        │ [0,0,-vz,0,0]│ DESCEND — нижче           │
     └───────────────────────────────┴──────────────┴───────────────────────────┘
 
+Чому долоня не залежить від великого пальця: розслаблена відкрита рука дуже
+часто тримає великий палець біля долоні. Якби від нього залежав вибір між
+"hover" та "вниз", природний жест "стоп" опускав би дрон. Тому "вниз" —
+це свідомий жест 🤘, який випадково не зробиш.
+
 Додатково (безперервне керування): якщо рука зміщена ліворуч/праворуч від
-центру кадру, додається yaw_rate — дрон плавно повертається в той бік.
-Це працює для "польотних" жестів (долоня, V, три, чотири, палець) і не
-впливає на жести-команди (кулак, вказівний).
+центру кадру, додається yaw_rate — дрон повертається в бік руки КОРИСТУВАЧА.
+Для недзеркальної камери (за замовчуванням) це враховано: права рука, що
+зміщується вправо від користувача, з'являється ЛІВОРУЧ на кадрі.
+Це працює для "польотних" жестів і не впливає на кулак/вказівний.
 
 Захист від випадкових команд:
     * жест має протриматись `stable_time` секунд (анти-дриґання);
-    * gesture-команда надсилається з частотою до 20 Гц (симулятор має
-      власний 0.5-секундний safety-timeout -> автоперехід у hover);
-    * якщо хазяїн зник з кадру назавжди довше `auto_land_after` секунд —
-      надсилається LAND (можна вимкнути, auto_land_after=0).
+    * короткі пропадання руки (< `hand_lost_timeout`) ігноруються;
+    * команда надсилається з частотою 20 Гц (симулятор має власний
+      0.5-секундний safety-timeout -> автоперехід у hover);
+    * якщо ХАЗЯЇН (не рука!) зник з кадру довше `auto_land_after` секунд —
+      надсилається LAND (auto_land_after=0 вимикає). Якщо хазяїн у кадрі,
+      а руки не видно — дрон просто висить у hover.
 
 Модуль НЕ залежить від OpenCV/MediaPipe/numpy — тому його легко тестувати
 (див. tests/test_gestures.py): на вхід подаються 21 точка кисті.
@@ -90,7 +99,7 @@ class Posture(str, Enum):
     POINT = "point"
     VICTORY = "victory"
     THREE = "three"
-    FOUR = "four"
+    ROCK = "rock"
     PALM = "palm"
     THUMB = "thumb"
 
@@ -166,14 +175,17 @@ def classify_posture(points) -> Posture:
     count = sum((index, middle, ring, pinky))
 
     if count == 4:
-        # долоня = чотири пальці + відставлений великий; "чотири" = без великого
-        return Posture.PALM if thumb else Posture.FOUR
+        return Posture.PALM            # великий палець навмисно не враховується
     if count == 0:
         return Posture.THUMB if thumb else Posture.FIST
     if count == 1:
         return Posture.POINT if index else Posture.NONE
     if count == 2:
-        return Posture.VICTORY if (index and middle) else Posture.NONE
+        if index and middle:
+            return Posture.VICTORY
+        if index and pinky:
+            return Posture.ROCK
+        return Posture.NONE
     if count == 3:
         return Posture.THREE if (index and middle and ring) else Posture.NONE
     return Posture.NONE
@@ -239,6 +251,7 @@ class GestureConfig:
     yaw_gain: float = 55.0           # °/с на максимальному відхиленні
     yaw_deadzone: float = 0.22       # |offset| < deadzone -> без повороту
     yaw_invert: bool = False         # поміняти напрямок повороту
+    image_mirrored: bool = False     # True, якщо кадр дзеркальний (selfie); webcam/ESP32 -> False
 
     stable_time: float = 0.18        # с, скільки жест має протриматись
     hand_lost_timeout: float = 0.35  # с, ігнорування "блимнув" руки
@@ -264,11 +277,12 @@ class GestureBinding:
     vx: float = 0.0
     vy: float = 0.0
     vz: float = 0.0
+    yaw: float = 0.0            # фіксований yaw_rate жесту (°/с), додається до yaw від руки
     action: int = HOVER
-    allow_yaw: bool = True
+    allow_yaw: bool = True      # чи додавати поворот від зміщення руки в кадрі
 
     def as_command(self, posture: Posture, yaw_rate: float = 0.0) -> DroneCommand:
-        yaw = yaw_rate if self.allow_yaw else 0.0
+        yaw = self.yaw + (yaw_rate if self.allow_yaw else 0.0)
         return DroneCommand(
             (round(float(self.vx), 4), round(float(self.vy), 4), round(float(self.vz), 4),
              round(float(yaw), 4), int(self.action)),
@@ -287,19 +301,19 @@ def default_bindings(config: Optional[GestureConfig] = None) -> Dict[Posture, Ge
         Posture.VICTORY: GestureBinding("FORWARD / APPROACH", vx=cfg.approach_speed),
         Posture.THREE: GestureBinding("BACKWARD / RETREAT", vx=-cfg.retreat_speed),
         Posture.THUMB: GestureBinding("CLIMB UP", vz=cfg.climb_speed),
-        Posture.FOUR: GestureBinding("DESCEND DOWN", vz=-cfg.descend_speed),
+        Posture.ROCK: GestureBinding("DESCEND DOWN", vz=-cfg.descend_speed),
     }
 
 
 #: Порядок для HUD/README
 GESTURE_HELP = (
-    (Posture.PALM, "Долоня (4 пальці + великий)", "HOVER — тримати позицію"),
+    (Posture.PALM, "Долоня (4 пальці)", "HOVER — тримати позицію"),
     (Posture.FIST, "Кулак (0 пальців)", "LAND — сісти"),
     (Posture.POINT, "Один палець (вказівний)", "TAKEOFF — злетіти на 2 м"),
     (Posture.VICTORY, "Два пальці (V)", "FORWARD — наблизитися до вас"),
     (Posture.THREE, "Три пальці", "BACKWARD — відлетіти назад"),
     (Posture.THUMB, "Тільки великий палець (👍)", "CLIMB — піднятися вище"),
-    (Posture.FOUR, "Чотири пальці (без великого)", "DESCEND — опуститися нижче"),
+    (Posture.ROCK, "Вказівний + мізинець (🤘)", "DESCEND — опуститися нижче"),
 )
 
 
@@ -336,13 +350,25 @@ class GestureMapper:
         self._candidate_since: Optional[float] = None
         self._active = Posture.NONE
         self._last_hand_time: Optional[float] = None
-        self._last_hand_label = ""
-        self._auto_landed = False
+        self._last_owner_time: Optional[float] = None
         self._yaw_state = 0.0
         self._last_yaw_time: Optional[float] = None
         self.last_command = HOVER_COMMAND
 
     # ------------------------------------------------------------------ руки
+    def _user_hand_label(self, label) -> str:
+        """
+        Мітка руки з погляду КОРИСТУВАЧА.
+
+        MediaPipe вважає, що кадр дзеркальний (selfie). Наші джерела (webcam без
+        flip та ESP32) недзеркальні, тому реальна права рука приходить як "Left"
+        — міняємо місцями, якщо image_mirrored=False.
+        """
+        label = str(label or "")
+        if self.config.image_mirrored or label not in ("Left", "Right"):
+            return label
+        return "Right" if label == "Left" else "Left"
+
     def _select_hand(self, hands) -> Optional[dict]:
         """Обирає руку для керування: спершу потрібну (права), потім будь-яку з жестом."""
         prepared = []
@@ -350,7 +376,7 @@ class GestureMapper:
             pts = normalize_hand(hand.get("points"))
             if pts is None:
                 continue
-            prepared.append({"points": pts, "label": str(hand.get("label") or "")})
+            prepared.append({"points": pts, "label": self._user_hand_label(hand.get("label"))})
 
         if not prepared:
             return None
@@ -383,28 +409,38 @@ class GestureMapper:
 
         scaled = (magnitude - cfg.yaw_deadzone) / (1.0 - cfg.yaw_deadzone)
         sign = 1.0 if offset > 0 else -1.0
+        if not cfg.image_mirrored:
+            # недзеркальний кадр: те, що праворуч від користувача, ліворуч у кадрі
+            sign = -sign
         if cfg.yaw_invert:
             sign = -sign
         return sign * scaled * cfg.yaw_gain
 
 
     # ------------------------------------------------------------------ update
-    def update(self, hands, frame_shape, now: Optional[float] = None) -> DroneCommand:
-        """Головна функція: руки + розмір кадру + час -> DroneCommand."""
+    def update(self, hands, frame_shape, now: Optional[float] = None,
+               owner_present: Optional[bool] = None) -> DroneCommand:
+        """
+        Головна функція: руки + розмір кадру + час -> DroneCommand.
+
+        owner_present — чи бачимо ХАЗЯЇНА (не руку!). Від цього залежить авто-посадка:
+        хазяїн у кадрі, але руки не видно -> просто hover. Якщо None, вважаємо, що
+        хазяїн присутній, коли є хоч одна рука (зворотна сумісність).
+        """
         now = now if now is not None else _now()
         cfg = self.config
-
         width = float(frame_shape[1]) if frame_shape and len(frame_shape) >= 2 else 0.0
 
         hand = self._select_hand(hands)
+        if owner_present is None:
+            owner_present = hand is not None
+        if owner_present:
+            self._last_owner_time = now
+
         if hand is None:
-            return self._no_hand_command(now)
+            return self._no_hand_command(now, owner_present)
 
-        # рука є -> авто-лендінг скасовуємо
         self._last_hand_time = now
-        self._auto_landed = False
-        self._last_hand_label = hand["label"]
-
         posture = classify_posture(hand["points"])
 
         # анти-дриґання: жест стає активним лише після stable_time
@@ -438,21 +474,33 @@ class GestureMapper:
         self._yaw_state += (target - self._yaw_state) * alpha
         return self._yaw_state
 
-    def _no_hand_command(self, now: float) -> DroneCommand:
-        """Руки немає: тримаємо hover, а через auto_land_after секунд — LAND."""
+    def _no_hand_command(self, now: float, owner_present: bool) -> DroneCommand:
+        """
+        Руки немає.
+          * коротке пропадання (< hand_lost_timeout) — тримаємо попередню команду,
+            щоб один кадр без детекції не переривав маневр;
+          * далі hover;
+          * хазяїна не видно довше auto_land_after — LAND.
+        """
         cfg = self.config
+        lost_for = None if self._last_hand_time is None else now - self._last_hand_time
+
+        if (lost_for is not None and lost_for < cfg.hand_lost_timeout
+                and self._active is not Posture.NONE and self.last_command.origin == "gesture"):
+            return self.last_command
+
         self._candidate = Posture.NONE
         self._candidate_since = None
         self._active = Posture.NONE
         self._yaw_state = 0.0
         self._last_yaw_time = None
 
-        lost_for = None if self._last_hand_time is None else now - self._last_hand_time
-        if cfg.auto_land_after > 0 and lost_for is not None and lost_for >= cfg.auto_land_after:
-            self._auto_landed = True
+        owner_gone_for = None if self._last_owner_time is None else now - self._last_owner_time
+        if (cfg.auto_land_after > 0 and not owner_present and owner_gone_for is not None
+                and owner_gone_for >= cfg.auto_land_after):
             command = DroneCommand((0.0, 0.0, 0.0, 0.0, LAND), Posture.NONE, "AUTO-LAND", "auto-land")
         else:
-            origin = "no-hand" if lost_for is not None else "idle"
+            origin = "no-hand" if lost_for is not None or owner_present else "idle"
             command = DroneCommand((0.0, 0.0, 0.0, 0.0, HOVER), Posture.NONE, "NO HAND", origin)
         self.last_command = command
         return command

@@ -143,6 +143,29 @@ class SimRelayIntegrationTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_stale_vector_is_not_repeated(self):
+        """Регресія: раніше останній вектор слався вічно, тож зависання/вимкнення 'G' не зупиняло дрон."""
+        async def scenario():
+            async with websockets.connect(self.ws_url) as browser:
+                link = DroneLink(self.ws_url, rate_hz=40.0, verbose=False, max_age=0.2)
+                link.start()
+                try:
+                    self.assertTrue(link.wait_connected(5.0))
+                    link.send([1.5, 0.0, 0.0, 0.0, 0])
+                    await asyncio.wait_for(browser.recv(), timeout=5.0)   # свіжий вектор дійшов
+                    await asyncio.sleep(0.5)                              # він застарів
+                    while True:                                           # вичерпуємо те, що встигло дійти
+                        try:
+                            await asyncio.wait_for(browser.recv(), timeout=0.05)
+                        except asyncio.TimeoutError:
+                            break
+                    with self.assertRaises(asyncio.TimeoutError):         # далі — тиша
+                        await asyncio.wait_for(browser.recv(), timeout=0.6)
+                finally:
+                    link.stop()
+
+        asyncio.run(scenario())
+
     def test_link_reports_offline_when_simulator_is_gone(self):
         dead_port = free_port()
         link = DroneLink(f"ws://127.0.0.1:{dead_port}", reconnect_delay=0.2,

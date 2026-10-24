@@ -10,6 +10,7 @@ numpy>=1.24.0
 mediapipe>=0.10.0
 ultralytics>=8.0.0          # YOLOv8-pose (ваги yolov8n-pose.pt завантажуються автоматично)
 face-recognition>=1.3.0     # біометрія обличчя (dlib)
+setuptools<81               # face_recognition_models робить `import pkg_resources`, якого немає у setuptools>=82
 
 # Симулятор дрона + канал команд
 websockets>=10.4
