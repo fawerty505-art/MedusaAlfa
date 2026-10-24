@@ -13,7 +13,9 @@
 
   // ---------------------------------------------------------------- config ---
   const CONFIG = {
-    wsPort: 8765,
+    // порт WebSocket береться з /sim-config.js (його генерує server.py),
+    // щоб зміна --ws-port не ламала сторінку
+    wsPort: (typeof window !== "undefined" && window.SIM_WS_PORT) || 8765,
     cmdTimeout: 0.5,        // s without a vector -> taper to hover
     takeoffAlt: 2.0,        // m
     groundSize: 50,         // m (50 x 50)

@@ -48,12 +48,28 @@ CLIENTS = set()
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     """Static file handler with caching disabled so edits show up on refresh."""
 
+    #: заповнюється у start_http_server() — щоб UI знав реальний WS-порт
+    ws_port = DEFAULT_WS_PORT
+
     extensions_map = {
         **http.server.SimpleHTTPRequestHandler.extensions_map,
         ".js": "application/javascript",
         ".css": "text/css",
         ".html": "text/html",
     }
+
+    def do_GET(self):  # noqa: N802 (ім'я визначене stdlib)
+        """Динамічний конфіг для браузера: /sim-config.js -> window.SIM_WS_PORT."""
+        if self.path.split("?", 1)[0] == "/sim-config.js":
+            body = f"window.SIM_WS_PORT = {int(self.ws_port)};\n".encode("ascii")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
@@ -68,8 +84,10 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     allow_reuse_address = True
 
 
-def start_http_server(host=DEFAULT_HOST, port=DEFAULT_HTTP_PORT):
-    handler = functools.partial(QuietHandler, directory=WEB_ROOT)
+def start_http_server(host=DEFAULT_HOST, port=DEFAULT_HTTP_PORT, ws_port=DEFAULT_WS_PORT):
+    # клас-обгортка, щоб /sim-config.js віддавав фактичний WS-порт
+    handler_cls = type("Handler", (QuietHandler,), {"ws_port": int(ws_port)})
+    handler = functools.partial(handler_cls, directory=WEB_ROOT)
     try:
         httpd = ThreadingHTTPServer((host, port), handler)
     except OSError as exc:
@@ -146,7 +164,7 @@ def parse_args(argv=None):
 
 
 async def main(host=DEFAULT_HOST, http_port=DEFAULT_HTTP_PORT, ws_port=DEFAULT_WS_PORT, quiet=False):
-    start_http_server(host, http_port)
+    start_http_server(host, http_port, ws_port)
     try:
         async with websockets.serve(ws_handler, host, ws_port):
             if not quiet:
