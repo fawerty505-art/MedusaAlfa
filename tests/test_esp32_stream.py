@@ -25,6 +25,16 @@ def make_jpeg(value):
 
 class FakeESP32Handler(socketserver.BaseRequestHandler):
     def handle(self):
+        handshake = bytearray()
+        while not handshake.endswith(b"\n"):
+            chunk = self.request.recv(1)
+            if not chunk:
+                return
+            handshake.extend(chunk)
+        self.server.handshakes.append(bytes(handshake))
+        if handshake != b"START\n":
+            return
+
         for i in range(300):
             jpeg = make_jpeg((i * 10) % 256)
             packet = struct.pack(">I", len(jpeg)) + jpeg
@@ -38,6 +48,10 @@ class FakeESP32Handler(socketserver.BaseRequestHandler):
 class FakeESP32Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
+
+    def __init__(self, *args, **kwargs):
+        self.handshakes = []
+        super().__init__(*args, **kwargs)
 
 
 class ESP32StreamTests(unittest.TestCase):
@@ -54,8 +68,8 @@ class ESP32StreamTests(unittest.TestCase):
         self.server.server_close()
 
     def test_defaults_match_supplied_connection_example(self):
-        self.assertEqual(DEFAULT_IP, "10.21.243.252")
-        self.assertEqual(DEFAULT_PORT, 5000)
+        self.assertEqual(DEFAULT_IP, "10.21.246.241")
+        self.assertEqual(DEFAULT_PORT, 80)
 
     def test_receives_first_length_prefixed_jpeg_frame(self):
         self.stream = ESP32Stream(self.host, self.port)
@@ -63,6 +77,7 @@ class ESP32StreamTests(unittest.TestCase):
         frame = self.stream.read()
         self.assertIsNotNone(frame)
         self.assertEqual(frame.shape, (240, 320, 3))
+        self.assertEqual(self.server.handshakes, [b"START\n"])
 
     def test_receiver_continues_updating_latest_frame(self):
         self.stream = ESP32Stream(self.host, self.port)
@@ -90,4 +105,3 @@ class ESP32StreamTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

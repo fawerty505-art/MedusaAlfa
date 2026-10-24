@@ -68,7 +68,7 @@ python3 medusa_webcam.py
 **Камера ESP32-CAM замість веб-камери:**
 
 ```bash
-python3 medusa_eye.py --ip 10.21.243.252 --port 5000
+python3 medusa_eye.py --ip 10.21.246.241 --port 80
 ```
 
 ---
@@ -167,10 +167,14 @@ python3 medusa_webcam.py
 ### Варіант B — ESP32-CAM
 
 ```bash
-python3 medusa_eye.py                          # IP/TCP зі сталого значення 10.21.243.252:5000
-python3 medusa_eye.py --ip 192.168.1.50 --port 5000
+python3 medusa_eye.py                          # IP/TCP за останнім значенням: 10.21.246.241:80
+python3 medusa_eye.py --ip 192.168.1.50 --port 80
 python3 medusa_eye.py --source webcam          # те саме, що варіант A
 ```
+
+Для ESP32 використовуйте IP, який скетч виводить у Serial Monitor після підключення до Wi-Fi
+(`Assigned IP`), та порт `80`. Закрийте `CameraWebServer/esp32_camera_viewer.py` перед запуском
+Medusa: скетч обслуговує лише одного TCP-клієнта одночасно.
 
 ### Варіант C — симулятор уже запущений окремо
 
@@ -432,7 +436,7 @@ python3 medusa_webcam.py --gestures-table  # таблиця жестів і ве
 |---|---|---|
 | `--source {webcam,esp32}` | `webcam` (`medusa_eye.py`: `esp32`) | джерело відео |
 | `--camera N` | `0` | індекс локальної камери |
-| `--ip`, `--port` | `10.21.243.252`, `5000` | адреса ESP32-CAM |
+| `--ip`, `--port` | `10.21.246.241`, `80` | адреса ESP32-CAM; IP беріть з Serial Monitor |
 | `--no-sim` | — | не запускати симулятор (уже працює) |
 | `--no-browser` | — | не відкривати браузер |
 | `--http-port`, `--ws-port` | `8000`, `8765` | порти симулятора |
@@ -629,4 +633,3 @@ def _climb_rate(self, points, frame_height):
 
 Навчальний / дослідницький проєкт. Сторонні компоненти зберігають свої ліцензії:
 Ultralytics YOLOv8 (AGPL-3.0), MediaPipe (Apache-2.0), face_recognition (MIT), Three.js (MIT).
-

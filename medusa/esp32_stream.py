@@ -15,9 +15,16 @@ import time
 import cv2
 import numpy as np
 
-DEFAULT_IP = "10.21.243.252"
-DEFAULT_PORT = 5000
+DEFAULT_IP = "10.21.246.241"
+DEFAULT_PORT = 80
 MAX_FRAME_BYTES = 8 * 1024 * 1024
+
+
+def _console_print(message):
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    safe_message = message.encode(encoding, errors="replace").decode(encoding)
+    sys.stdout.write(safe_message + "\n")
+    sys.stdout.flush()
 
 
 def recv_exact(sock, length, running=lambda: True):
@@ -53,7 +60,7 @@ class ESP32Stream:
     def _set_connected(self, state, message):
         if state != self.connected:
             self.connected = state
-            print(f"📡 ESP32-CAM: {message}")
+            _console_print(f"📡 ESP32-CAM: {message}")
 
     def _set_frame(self, frame):
         with self.lock:
@@ -67,6 +74,7 @@ class ESP32Stream:
             sock.settimeout(self.connect_timeout)
             try:
                 sock.connect((self.host, self.port))
+                sock.sendall(b"START\n")
                 sock.settimeout(1.0)
             except OSError as exc:
                 sock.close()
@@ -92,7 +100,7 @@ class ESP32Stream:
                         self._set_frame(frame)
             except (OSError, ValueError) as exc:
                 if self.started:
-                    print(f"⚠️ ESP32-CAM stream error: {exc}")
+                    _console_print(f"⚠️ ESP32-CAM stream error: {exc}")
             finally:
                 try:
                     sock.close()
@@ -140,10 +148,10 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()
 
-    print(f"Підключення до TCP-потоку {args.ip}:{args.port} ... (Q або Esc — вихід)")
+    _console_print(f"Підключення до TCP-потоку {args.ip}:{args.port} ... (Q або Esc — вихід)")
     cam = ESP32Stream(args.ip, args.port)
     if not cam.wait_for_first_frame(timeout=10.0):
-        print("❌ Не отримано кадрів. Перевірте IP, порт та формат сервера.")
+        _console_print("❌ Не отримано кадрів. Перевірте IP, порт та формат сервера.")
         cam.release()
         return 1
 

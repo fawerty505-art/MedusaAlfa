@@ -9,7 +9,7 @@
 
 Запуск:
     python3 medusa_eye.py                          # ESP32 за замовчуванням
-    python3 medusa_eye.py --ip 10.21.243.252 --port 5000
+    python3 medusa_eye.py --ip 10.21.246.241 --port 80
     python3 medusa_eye.py --source webcam           # те саме, що medusa_webcam.py
     python3 medusa_eye.py --no-sim                  # без запуску симулятора
 

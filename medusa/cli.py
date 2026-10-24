@@ -39,7 +39,7 @@ def build_parser(default_source: str = "webcam") -> argparse.ArgumentParser:
             "Приклади:\n"
             "  python3 medusa_webcam.py\n"
             "  python3 medusa_webcam.py --no-sim --ws-url ws://127.0.0.1:8765\n"
-            "  python3 medusa_eye.py --ip 10.21.243.252 --port 5000\n"
+            "  python3 medusa_eye.py --ip 10.21.246.241 --port 80\n"
         ),
     )
 
@@ -200,4 +200,3 @@ def main(argv=None, default_source: str = "webcam") -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main(default_source="webcam"))
-
