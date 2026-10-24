@@ -1,0 +1,10 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/MedusaAlfa/test_eye/venv/bin/python",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}",
+    "${workspaceFolder}/MedusaAlfa/test_eye/venv/lib/python3.14/site-packages"
+  ],
+  "files.exclude": {
+    "**/__pycache__": true
+  }
+}

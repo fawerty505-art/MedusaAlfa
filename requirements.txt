@@ -1,0 +1,15 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  MedusaAlfa + WebGL Drone Sim — Python-залежності
+#  Встановлення:  python3 -m pip install -r requirements.txt
+#  (face_recognition потребує CMake та компілятор:  brew install cmake  /  apt install cmake)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Комп'ютерний зір
+opencv-python>=4.8.0
+numpy>=1.24.0
+mediapipe>=0.10.0
+ultralytics>=8.0.0          # YOLOv8-pose (ваги yolov8n-pose.pt завантажуються автоматично)
+face-recognition>=1.3.0     # біометрія обличчя (dlib)
+
+# Симулятор дрона + канал команд
+websockets>=10.4

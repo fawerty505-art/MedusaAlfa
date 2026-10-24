@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGL Drone Simulator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- WebGL canvas is appended here by app.js -->
+  <div id="viewport"></div>
+
+  <!-- ===================== HUD OVERLAY ===================== -->
+  <div id="hud">
+
+    <!-- Telemetry (top-left) -->
+    <aside class="panel" id="telemetry">
+      <header class="panel-head">
+        <h1>DRONE<span>SIM</span></h1>
+        <div id="ws-pill" class="pill off" title="WebSocket link to ws://localhost:8765">
+          <i></i><span id="ws-text">DISCONNECTED</span>
+        </div>
+      </header>
+
+      <div class="grid3">
+        <div class="cell"><label>X &middot; EAST</label><b id="t-x">0.00</b><small>m</small></div>
+        <div class="cell"><label>Y &middot; ALT</label><b id="t-y">0.00</b><small>m</small></div>
+        <div class="cell"><label>Z &middot; NORTH</label><b id="t-z">0.00</b><small>m</small></div>
+      </div>
+
+      <div class="heading-row">
+        <div class="compass" aria-hidden="true">
+          <div class="rose" id="compass-rose">
+            <span class="c-n">N</span><span class="c-e">E</span><span class="c-s">S</span><span class="c-w">W</span>
+          </div>
+          <div class="needle"></div>
+        </div>
+        <div class="heading-text">
+          <label>HEADING</label>
+          <b><span id="t-heading">000.0</span>&deg; <em id="t-cardinal">N</em></b>
+        </div>
+      </div>
+
+      <dl class="rows">
+        <div><dt>Action</dt><dd><span id="t-action" class="badge" data-state="LANDED">LANDED</span></dd></div>
+        <div><dt>Ground speed</dt><dd id="t-speed">0.00 m/s</dd></div>
+        <div><dt>Vertical speed</dt><dd id="t-vspeed">0.00 m/s</dd></div>
+        <div><dt>Yaw rate</dt><dd id="t-yaw">0.0 &deg;/s</dd></div>
+        <div><dt>Control source</dt><dd id="t-mode">REMOTE (WS)</dd></div>
+        <div><dt>Last vector</dt><dd id="t-vector" class="mono">&mdash;</dd></div>
+        <div><dt>Vector age</dt><dd id="t-age" class="mono">&mdash;</dd></div>
+      </dl>
+    </aside>
+
+    <!-- Control panel (top-right) -->
+    <aside class="panel" id="controls">
+      <header class="panel-head"><h2>CONTROLS</h2></header>
+
+      <button id="btn-camera" class="btn wide" type="button">
+        <span>Camera</span><b id="camera-label">ORBIT</b><kbd>C</kbd>
+      </button>
+
+      <button id="btn-manual" class="btn wide toggle" type="button" aria-pressed="false">
+        <span>Manual override</span><b id="manual-label">OFF</b><kbd>M</kbd>
+      </button>
+
+      <div class="btn-row">
+        <button id="btn-takeoff" class="btn" type="button">Takeoff <kbd>T</kbd></button>
+        <button id="btn-land" class="btn" type="button">Land <kbd>L</kbd></button>
+        <button id="btn-reset" class="btn danger" type="button">Reset <kbd>R</kbd></button>
+      </div>
+    </aside>
+
+    <!-- Key help (bottom-left) -->
+    <aside class="panel" id="help">
+      <header class="panel-head"><h2>MANUAL KEYS</h2><small>enable with M</small></header>
+      <ul>
+        <li><kbd>W</kbd><kbd>S</kbd> forward / back</li>
+        <li><kbd>A</kbd><kbd>D</kbd> left / right</li>
+        <li><kbd>Space</kbd><kbd>Shift</kbd> up / down</li>
+        <li><kbd>Q</kbd><kbd>E</kbd> yaw left / right</li>
+        <li><kbd>T</kbd><kbd>L</kbd><kbd>R</kbd> takeoff / land / reset</li>
+      </ul>
+    </aside>
+
+    <!-- Protocol hint (bottom-right) -->
+    <aside class="panel" id="protocol">
+      <header class="panel-head"><h2>WS PROTOCOL</h2></header>
+      <code>[v_x, v_y, v_z, yaw_rate, action]</code>
+      <p>m/s forward &middot; m/s right &middot; m/s up &middot; deg/s &middot; 0 hover, 1 takeoff, 2 land, 3 reset</p>
+    </aside>
+  </div>
+
+  <!-- Messages -->
+  <div id="loading" class="overlay"><div class="spinner"></div><p>Loading 3D engine&hellip;</p></div>
+  <div id="fatal" class="overlay error" hidden>
+    <div class="box">
+      <h2>Cannot start simulator</h2>
+      <p id="fatal-msg"></p>
+    </div>
+  </div>
+  <div id="ctx-lost" class="overlay error" hidden>
+    <div class="box"><h2>WebGL context lost</h2><p>Waiting for the GPU to recover&hellip;</p></div>
+  </div>
+
+  <!--
+    Script loader: classic (non-module) scripts with fixed Three.js r128 (the last line that ships
+    the non-module examples/js/controls/OrbitControls.js). Each file has CDN fallbacks.
+  -->
+  <script>
+  (function () {
+    'use strict';
+    var THREE_URLS = [
+      'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js',
+      'https://unpkg.com/three@0.128.0/build/three.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'
+    ];
+    var CONTROLS_URLS = [
+      'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js',
+      'https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js'
+    ];
+
+    function fatal(msg) {
+      var loading = document.getElementById('loading');
+      if (loading) { loading.hidden = true; }
+      document.getElementById('fatal-msg').textContent = msg;
+      document.getElementById('fatal').hidden = false;
+    }
+
+    function loadScript(src, onOk, onErr) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.async = false;
+      s.onload = onOk;
+      s.onerror = function () {
+        if (s.parentNode) { s.parentNode.removeChild(s); }
+        onErr();
+      };
+      document.body.appendChild(s);
+    }
+
+    function loadAny(list, onOk, onFail, i) {
+      i = i || 0;
+      if (i >= list.length) { onFail(); return; }
+      loadScript(list[i], onOk, function () { loadAny(list, onOk, onFail, i + 1); });
+    }
+
+    loadAny(THREE_URLS, function () {
+      if (!window.THREE) { fatal('Three.js loaded but the THREE global is missing.'); return; }
+      loadAny(CONTROLS_URLS, function () {
+        loadScript('app.js', function () {}, function () {
+          fatal('Could not load app.js. Start the simulator with "python3 medusa_webcam.py" or "python3 sim/server.py".');
+        });
+      }, function () {
+        fatal('Could not download OrbitControls from any CDN. Check your internet connection.');
+      });
+    }, function () {
+      fatal('Could not download Three.js from any CDN (jsdelivr, unpkg, cdnjs). Check your internet connection.');
+    });
+  })();
+  </script>
+</body>
+</html>
