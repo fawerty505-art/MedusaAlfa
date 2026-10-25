@@ -1,21 +1,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
-#  MedusaAlfa + WebGL Drone Sim — Python-залежності
-#  Встановлення:  python3 -m pip install -r requirements.txt
-#  (face_recognition потребує CMake та компілятор:  brew install cmake  /  apt install cmake)
+#  MedusaAlfa + WebGL Drone Sim — Python dependencies
+#  Installation:  python3 -m pip install -r requirements.txt
+#  (face_recognition requires CMake and a compiler:  brew install cmake  /  apt install cmake)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Комп'ютерний зір
+# Computer vision
 opencv-python>=4.8.0
 numpy>=1.24.0
 mediapipe>=0.10.0
-ultralytics>=8.0.0          # YOLOv8-pose (ваги yolov8n-pose.pt завантажуються автоматично)
-face-recognition>=1.3.0     # біометрія обличчя (dlib)
-setuptools<81               # face_recognition_models робить `import pkg_resources`, якого немає у setuptools>=82
+ultralytics>=8.0.0          # YOLOv8-pose (yolov8n-pose.pt weights are downloaded automatically)
+face-recognition>=1.3.0     # Face biometrics (dlib)
+setuptools<81               # face_recognition_models imports pkg_resources, which is removed in setuptools>=82
 
-# Симулятор дрона + канал команд
+# Drone simulator + command channel
 websockets>=10.4
 
-# Голосові команди (ElevenLabs Speech-to-Text, SPACE: fly / sit)
+# Voice commands (ElevenLabs Speech-to-Text, SPACE: fly / sit)
 requests>=2.31.0
-sounddevice>=0.4.6          # запис мікрофона (потрібен PortAudio: brew install portaudio)
-pynput>=1.7.6               # глобальний hotkey SPACE (macOS: дозвіл "Input Monitoring")
+sounddevice>=0.4.6          # Microphone recording (requires PortAudio: brew install portaudio)
+pynput>=1.7.6               # Global SPACE hotkey (macOS: "Input Monitoring" permission)

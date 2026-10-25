@@ -48,7 +48,7 @@ CLIENTS = set()
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     """Static file handler with caching disabled so edits show up on refresh."""
 
-    #: заповнюється у start_http_server() — щоб UI знав реальний WS-порт
+    #: populated in start_http_server() — so the UI knows the actual WS port
     ws_port = DEFAULT_WS_PORT
 
     extensions_map = {
@@ -58,8 +58,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         ".html": "text/html",
     }
 
-    def do_GET(self):  # noqa: N802 (ім'я визначене stdlib)
-        """Динамічний конфіг для браузера: /sim-config.js -> window.SIM_WS_PORT."""
+    def do_GET(self):  # noqa: N802 (name defined by stdlib)
+        """Dynamic config for browser: /sim-config.js -> window.SIM_WS_PORT."""
         if self.path.split("?", 1)[0] == "/sim-config.js":
             body = f"window.SIM_WS_PORT = {int(self.ws_port)};\n".encode("ascii")
             self.send_response(200)
@@ -85,7 +85,7 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 def start_http_server(host=DEFAULT_HOST, port=DEFAULT_HTTP_PORT, ws_port=DEFAULT_WS_PORT):
-    # клас-обгортка, щоб /sim-config.js віддавав фактичний WS-порт
+    # wrapper class so /sim-config.js returns the actual WS port
     handler_cls = type("Handler", (QuietHandler,), {"ws_port": int(ws_port)})
     handler = functools.partial(handler_cls, directory=WEB_ROOT)
     try:

@@ -6,22 +6,22 @@ __pycache__/
 venv/
 env/
 
-# ── Моделі (завантажуються автоматично при першому запуску) ──────────────────
+# ── Models (downloaded automatically on first run) ───────────────────────────
 models/*.pt
 models/*.task
 
-# ── Біометричний профіль хазяїна (персональні дані — НЕ пушити в репозиторій) ─
+# ── Owner biometric profile (personal data — DO NOT push to repository) ──────
 data/*.npy
 
-# ── Легасі-папки після злиття проєктів (локальні, не потрібні для роботи) ────
+# ── Legacy folders after project merge (local, not required for operation) ───
 MedusaAlfa/
 web_drone_sim/
 
-# ── ОС / редактори ───────────────────────────────────────────────────────────
+# ── OS / editors ─────────────────────────────────────────────────────────────
 .DS_Store
 .idea/
 *.swp
 
-# ── Секрети (API-ключі, локальний .env) ─────────────────────────────────────
+# ── Secrets (API keys, local .env) ───────────────────────────────────────────
 .env
 !.env.example

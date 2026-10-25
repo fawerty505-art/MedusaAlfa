@@ -33,6 +33,7 @@ import math
 import queue
 import threading
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import cv2
 import numpy as np
@@ -76,6 +77,7 @@ YOLO_IMGSZ = 320           # 320px для надшвидкої детекції 
 YOLO_CONFIDENCE = 0.38     # Чутливість детекції людей
 FACE_TOLERANCE = 0.52      # Поріг розпізнавання хазяїна (< 0.52)
 HAND_MARGIN = 70           # Запас прив'язки рук до тіла
+TORCH_THREADS = 4          # потоки PyTorch для YOLO (за замовчуванням тут 1; 4 — оптимум за заміром)
 
 # Кольори BGR
 COLOR_OWNER_FACE = (0, 255, 0)        # Зелений
@@ -111,6 +113,7 @@ class ThreadedCamera:
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self.grabbed, self.frame = self.cap.read()
+        self.frame_id = 1 if self.frame is not None else 0   # лічильник нових кадрів
         self.started = True
         self.lock = threading.Lock()
         self.thread = threading.Thread(target=self._update, daemon=True)
@@ -122,6 +125,7 @@ class ThreadedCamera:
             if grabbed:
                 with self.lock:
                     self.frame = frame
+                    self.frame_id += 1
             else:
                 time.sleep(0.005)
 
@@ -316,6 +320,11 @@ class MedusaEye:
         # 2. YOLOv8 Pose (для точного трекінгу обличчя при поворотах/нахилах)
         print("[2/5] Ініціалізація YOLOv8-pose (ByteTrack, imgsz=320)...")
         ensure_project_dirs()
+        try:  # за замовчуванням PyTorch тут працює в 1 потоці — на багатоядерному CPU це марнотратно
+            import torch
+            torch.set_num_threads(TORCH_THREADS)
+        except Exception:
+            pass
         # якщо файлу немає — Ultralytics сам завантажить його саме в models/
         self.yolo_pose = YOLO(str(YOLO_POSE_PATH))
         self.yolo_pose.track(test_frame, persist=True, imgsz=YOLO_IMGSZ, verbose=False)
@@ -335,7 +344,10 @@ class MedusaEye:
         self.hand_detector = vision.HandLandmarker.create_from_options(options)
         _mp_warm = mp.Image(image_format=mp.ImageFormat.SRGB, data=test_frame)
         self.hand_detector.detect_for_video(_mp_warm, 0)
-        print("   ✓ MediaPipe HandLandmarker готовий (~10 мс)")
+        self._last_hand_ts = 0   # timestamp для VIDEO-режиму має строго зростати
+        # Руки рахуються в окремому потоці ПАРАЛЕЛЬНО з YOLO (один воркер = один потік MediaPipe)
+        self._hand_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="medusa-hands")
+        print("   ✓ MediaPipe HandLandmarker готовий (~10 мс, паралельно з YOLO)")
 
         # 4. Профіль хазяїна
         print("[4/5] Завантаження профілю хазяїна...")
@@ -353,11 +365,22 @@ class MedusaEye:
         self.track_identities = {}
         self.smoothed_face_box = None
 
-        # Метрики FPS
+        # Метрики FPS: fps — частота показу відео, ai_fps — частота повного CV-циклу
         self.fps = 0.0
         self.frame_idx = 0
         self.fps_timer = time.time()
+        self.ai_fps = 0.0
+        self._ai_count = 0
+        self._ai_timer = time.time()
         self.debug_mode = False
+
+        # Потік обробки (YOLO + руки + жести) відокремлений від потоку показу (imshow/waitKey).
+        # _state_lock захищає стан трекінгу/контролера від клавіш R/C/G, що натискаються в головному потоці.
+        self._state_lock = threading.RLock()
+        self._result_lock = threading.Lock()
+        self._result = (self._empty_assoc(), None, 0)   # (assoc, command, номер результату)
+        self._stop_event = threading.Event()
+        self._worker_error = None
 
     def load_owner_face(self):
         """Завантажує збережений вектор обличчя."""
@@ -390,11 +413,12 @@ class MedusaEye:
             print("❌ Не вдалося створити вектор обличчя.")
             return False
 
-        self.owner_encoding = encs[0]
-        np.save(str(OWNER_FACE_PATH), self.owner_encoding)
-        self.owner_track_id = None
-        self.track_identities.clear()
-        self.smoothed_face_box = None
+        np.save(str(OWNER_FACE_PATH), encs[0])
+        with self._state_lock:      # важке розпізнавання вище — поза блокуванням
+            self.owner_encoding = encs[0]
+            self.owner_track_id = None
+            self.track_identities.clear()
+            self.smoothed_face_box = None
         print(f"✅ ХАЗЯЇНА ЗАРЕЄСТРОВАНО! Вектор збережено у {OWNER_FACE_PATH.name}")
         return True
 
@@ -402,11 +426,16 @@ class MedusaEye:
         """Скидає хазяїна."""
         if OWNER_FACE_PATH.exists():
             OWNER_FACE_PATH.unlink()
-        self.owner_encoding = None
-        self.owner_track_id = None
-        self.track_identities.clear()
-        self.smoothed_face_box = None
+        with self._state_lock:
+            self.owner_encoding = None
+            self.owner_track_id = None
+            self.track_identities.clear()
+            self.smoothed_face_box = None
         print("🗑️ Профіль хазяїна скинуто.")
+
+    @staticmethod
+    def _empty_assoc():
+        return {"owner_face": None, "owner_body": None, "owner_hands": [], "others": []}
 
     def track_people_with_pose(self, frame_bgr):
         """
@@ -424,14 +453,19 @@ class MedusaEye:
         if results and len(results) > 0 and results[0].boxes is not None:
             boxes = results[0].boxes
             kpts = results[0].keypoints
-            for i in range(len(boxes)):
-                x1, y1, x2, y2 = map(int, boxes.xyxy[i])
-                track_id = int(boxes.id[i]) if boxes.id is not None else None
-                conf = float(boxes.conf[i])
+            # один перенос тензорів у numpy замість поелементних звернень у циклі
+            xyxy = boxes.xyxy.cpu().numpy()
+            confs = boxes.conf.cpu().numpy()
+            ids = boxes.id.int().cpu().tolist() if boxes.id is not None else None
+            kpts_xy = kpts.xy.cpu().numpy() if kpts is not None else None
+            for i in range(len(xyxy)):
+                x1, y1, x2, y2 = map(int, xyxy[i])
+                track_id = int(ids[i]) if ids is not None else None
+                conf = float(confs[i])
 
                 pts = None
-                if kpts is not None and len(kpts.xy) > i:
-                    pts = kpts.xy[i].cpu().numpy()
+                if kpts_xy is not None and len(kpts_xy) > i:
+                    pts = kpts_xy[i]
 
                 people.append({
                     "box": (x1, y1, x2, y2),
@@ -512,6 +546,9 @@ class MedusaEye:
         """MediaPipe Hands у швидкому режимі VIDEO."""
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        # VIDEO-режим MediaPipe вимагає строго зростаючих timestamp
+        timestamp_ms = max(int(timestamp_ms), self._last_hand_ts + 1)
+        self._last_hand_ts = timestamp_ms
         res = self.hand_detector.detect_for_video(mp_image, timestamp_ms)
 
         hands = []
@@ -541,6 +578,18 @@ class MedusaEye:
         """
         now = time.time()
 
+        # Руки (MediaPipe) стартують ОДРАЗУ у фоновому потоці й рахуються паралельно з YOLO.
+        # Результат використовується лише якщо хазяїн у кадрі (як і раніше).
+        hands_future = self._hand_pool.submit(self.detect_hands, frame_bgr, curr_time_ms)
+
+        # 2. Детекція людей (YOLOv8 Pose) — важка частина, без блокування стану
+        people = self.track_people_with_pose(frame_bgr)
+
+        with self._state_lock:
+            return self._associate(frame_bgr, people, hands_future, now)
+
+    def _associate(self, frame_bgr, people, hands_future, now):
+        """Прив'язка людей до біометрії, вибір хазяїна та його рук (під _state_lock)."""
         # 1. Забираємо відповіді біометрії
         for res in self.face_verifier.get_results():
             tid = res["track_id"]
@@ -558,19 +607,12 @@ class MedusaEye:
                 if is_owner:
                     self.owner_track_id = tid
 
-        # 2. Детекція людей (YOLOv8 Pose)
-        people = self.track_people_with_pose(frame_bgr)
-
         # Миттєве очищення, якщо в полі зору нікого немає
         if not people:
             self.owner_track_id = None
             self.smoothed_face_box = None
-            return {
-                "owner_face": None,
-                "owner_body": None,
-                "owner_hands": [],
-                "others": []
-            }
+            hands_future.result()      # дочекатися, щоб воркер MediaPipe не відстав
+            return self._empty_assoc()
 
         # 3. Обробка знайдених людей
         owner_body = None
@@ -641,8 +683,8 @@ class MedusaEye:
 
         # 4. MediaPipe для рук (тільки коли хазяїн у кадрі)
         owner_hands = []
+        all_hands = hands_future.result()     # вже пораховано паралельно з YOLO
         if owner_body is not None:
-            all_hands = self.detect_hands(frame_bgr, curr_time_ms)
             for h in all_hands:
                 if wrist_near_body(h["wrist"], owner_body["box"]):
                     owner_hands.append(h)
@@ -716,9 +758,7 @@ class MedusaEye:
             self.draw_skeleton_hand(frame, hand["points"], self.hand_badge_text(hand["label"]))
 
         # 5. Верхній HUD
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (0, 0), (w, 46), (15, 15, 15), -1)
-        cv2.addWeighted(overlay, 0.70, frame, 0.30, 0, frame)
+        self._blend_bar(frame, 0, 46)
 
         cv2.putText(frame, "MEDUSA EYE // POSE TRACKING (640x480)", (12, 17),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 220, 255), 1, cv2.LINE_AA)
@@ -730,13 +770,13 @@ class MedusaEye:
 
         # FPS
         fps_clr = (0, 255, 0) if self.fps >= 28 else ((0, 200, 255) if self.fps >= 18 else (0, 0, 255))
-        cv2.putText(frame, f"FPS: {self.fps:.1f}", (w - 95, 26),
+        cv2.putText(frame, f"FPS: {self.fps:.1f}", (w - 95, 18),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, fps_clr, 1, cv2.LINE_AA)
+        cv2.putText(frame, f"AI: {self.ai_fps:.1f}", (w - 95, 38),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.40, (200, 200, 200), 1, cv2.LINE_AA)
 
         # Нижня панель
-        overlay_b = frame.copy()
-        cv2.rectangle(overlay_b, (0, h - 22), (w, h), (15, 15, 15), -1)
-        cv2.addWeighted(overlay_b, 0.70, frame, 0.30, 0, frame)
+        self._blend_bar(frame, h - 22, h)
         cv2.putText(frame, "[G] Gestures   [R] Register Owner   [D] Debug   [C] Clear   [Q] Quit",
                     (12, h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (160, 160, 160), 1, cv2.LINE_AA)
 
@@ -764,8 +804,15 @@ class MedusaEye:
             )
             draw_action_flash(frame, command, time.monotonic(), self.last_action_at)
 
+    @staticmethod
+    def _blend_bar(frame, y1, y2, color=(15, 15, 15), alpha=0.70):
+        """Напівпрозора смуга: змішуємо лише потрібний фрагмент, а не копіюємо весь кадр."""
+        roi = frame[y1:y2]
+        if roi.size:
+            cv2.addWeighted(np.full_like(roi, color), alpha, roi, 1.0 - alpha, 0, roi)
+
     def update_fps(self):
-        """Оновлює лічильник FPS."""
+        """Оновлює лічильник FPS показу відео."""
         self.frame_idx += 1
         elapsed = time.time() - self.fps_timer
         if elapsed >= 0.4:
@@ -773,35 +820,44 @@ class MedusaEye:
             self.frame_idx = 0
             self.fps_timer = time.time()
 
-    def run(self):
-        """Головний цикл."""
-        print("\n🚀 Medusa Eye запущено (Pose Tracking Engine)!")
-        print("   Дивіться в камеру. Для запису натисніть [R]. Для виходу [Q] або [Esc].")
-        if self.controller is not None:
-            print("   [G] — увімкнути/вимкнути керування дроном жестами.\n")
-        else:
-            print()
+    def _update_ai_fps(self):
+        """Лічильник частоти повного CV-циклу (викликається з потоку обробки)."""
+        self._ai_count += 1
+        elapsed = time.time() - self._ai_timer
+        if elapsed >= 0.5:
+            self.ai_fps = self._ai_count / elapsed
+            self._ai_count = 0
+            self._ai_timer = time.time()
 
+    def _processing_loop(self):
+        """
+        Потік обробки: нова фраза камери -> YOLO + руки (паралельно) -> жести -> команда дрону.
+        Працює незалежно від показу, тому imshow/waitKey (~13 мс) більше не гальмують CV.
+        """
         start_time_ms = int(time.time() * 1000)
         last_label = None
-
+        last_id = -1
         try:
-            while True:
+            while not self._stop_event.is_set():
+                frame_id = getattr(self.cam, "frame_id", None)
+                if frame_id is not None and frame_id == last_id:
+                    time.sleep(0.002)      # нового кадру ще немає — не обробляємо той самий двічі
+                    continue
                 raw_frame = self.cam.read()
                 if raw_frame is None:
                     time.sleep(0.002)
                     continue
+                last_id = frame_id
 
                 frame = cv2.resize(raw_frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
                 curr_time_ms = int(time.time() * 1000) - start_time_ms
 
-                # Повний конвеєр (YOLO-pose -> хазяїн -> MediaPipe руки)
                 assoc = self.process_pipeline(frame, curr_time_ms)
 
-                # Жести -> вектор команд -> симулятор
                 command = None
                 if self.controller is not None:
-                    command = self.controller.update(assoc, frame.shape)
+                    with self._state_lock:
+                        command = self.controller.update(assoc, frame.shape)
                     if command is not None:
                         if command.action != 0 and command.action != self.last_action:
                             self.last_action = command.action
@@ -815,16 +871,49 @@ class MedusaEye:
                             last_label = command.label
                 self.gesture_command = command
 
-                # Рендеринг
-                self.update_fps()
-                self.render(frame, assoc, command)
+                self._update_ai_fps()
+                with self._result_lock:
+                    self._result = (assoc, command, self._result[2] + 1)
+        except Exception as exc:       # потік не має падати мовчки — показ побачить помилку
+            self._worker_error = exc
+            self._stop_event.set()
 
-                cv2.imshow("Medusa Eye // ESP32 VGA Simulator", frame)
+    def run(self):
+        """Головний цикл."""
+        print("\n🚀 Medusa Eye запущено (Pose Tracking Engine)!")
+        print("   Дивіться в камеру. Для запису натисніть [R]. Для виходу [Q] або [Esc].")
+        if self.controller is not None:
+            print("   [G] — увімкнути/вимкнути керування дроном жестами.\n")
+        else:
+            print()
+
+        # CV (YOLO + руки + жести) крутиться у власному потоці, а тут — лише показ і клавіші
+        self._stop_event.clear()
+        self._worker = threading.Thread(target=self._processing_loop, name="medusa-cv", daemon=True)
+        self._worker.start()
+
+        window = "Medusa Eye // ESP32 VGA Simulator"
+        last_id = -1
+        frame = None
+
+        try:
+            while not self._stop_event.is_set():
+                # Показуємо НАЙСВІЖІШИЙ кадр камери з останнім готовим оверлеєм CV
+                frame_id = getattr(self.cam, "frame_id", None)
+                if frame is None or frame_id is None or frame_id != last_id:
+                    raw_frame = self.cam.read()
+                    if raw_frame is not None:
+                        last_id = frame_id
+                        frame = cv2.resize(raw_frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+                        with self._result_lock:
+                            assoc, command, _ = self._result
+                        self.update_fps()
+                        self.render(frame, assoc, command)
+                        cv2.imshow(window, frame)
 
                 # якщо вікно закрили хрестиком — виходимо коректно
                 try:
-                    if cv2.getWindowProperty("Medusa Eye // ESP32 VGA Simulator",
-                                              cv2.WND_PROP_VISIBLE) < 1:
+                    if cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
                         print("👋 Вікно закрито.")
                         break
                 except cv2.error:
@@ -836,15 +925,20 @@ class MedusaEye:
                     break
                 elif key in (ord('g'), ord('G')):
                     if self.controller is not None:
-                        state = self.controller.toggle()
+                        with self._state_lock:
+                            state = self.controller.toggle()
                         print(f"🎮 Керування жестами: {'ON' if state else 'OFF'}")
                 elif key in (ord('r'), ord('R')):
-                    self.register_owner(frame)
+                    if frame is not None:
+                        self.register_owner(frame)
                 elif key in (ord('c'), ord('C')):
                     self.clear_owner()
                 elif key in (ord('d'), ord('D')):
                     self.debug_mode = not self.debug_mode
                     print(f"🔧 Debug режим: {'ON' if self.debug_mode else 'OFF'}")
+
+            if self._worker_error is not None:
+                print(f"❌ Помилка в потоці CV: {type(self._worker_error).__name__}: {self._worker_error}")
 
         except KeyboardInterrupt:
             print("\n⛔ Зупинено користувачем.")
@@ -854,6 +948,11 @@ class MedusaEye:
     def cleanup(self):
         """Звільнення ресурсів."""
         print("🧹 Зупинка фонових потоків та закриття вікон...")
+        self._stop_event.set()
+        worker = getattr(self, "_worker", None)
+        if worker is not None and worker.is_alive():
+            worker.join(timeout=2.0)
+        self._hand_pool.shutdown(wait=False)
         self.face_verifier.stop()
         self.cam.release()
         cv2.destroyAllWindows()

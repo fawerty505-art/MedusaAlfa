@@ -1,71 +1,71 @@
 # 🛸 MedusaAlfa × WebGL Drone Sim
 
-**Один проєкт = комп'ютерний зір + керування дроном жестами + 3D-симулятор у браузері.**
+**One project = computer vision + gesture drone control + a 3D simulator in the browser.**
 
-Проєкт об'єднує два раніше незалежні модулі:
+The project merges two previously independent modules:
 
-| Модуль | Що робив | Що став |
+| Module | What it did | What it became |
 |---|---|---|
-| **MedusaAlfa** (`test_eye`) | Розпізнавання хазяїна (YOLOv8-pose + face_recognition), трекінг рук (MediaPipe) | Джерело команд: жести рук → вектор керування |
-| **web_drone_sim** | WebGL-симулятор дрона (Three.js) + WebSocket-релей | Виконавець команд: літає, сідає, повертається |
+| **MedusaAlfa** (`test_eye`) | Owner recognition (YOLOv8-pose + face_recognition), hand tracking (MediaPipe) | Command source: hand gestures → control vector |
+| **web_drone_sim** | WebGL drone simulator (Three.js) + WebSocket relay | Command executor: takes off, lands, turns |
 
-Тепер **достатньо однієї команди** `python3 medusa_webcam.py` — і програма:
+Now **a single command** — `python3 medusa_webcam.py` — is enough. The program:
 
-1. піднімає симулятор на `http://127.0.0.1:8000` та відкриває браузер;
-2. вмикає камеру й розпізнає вас як **хазяїна** (біометрія обличчя);
-3. знаходить ваші руки (MediaPipe, 21 точка) і **розпізнає жести**;
-4. перетворює жест у вектор `[v_x, v_y, v_z, yaw_rate, action]` і 20 разів на секунду шле його симулятору через WebSocket;
-5. показує у вікні відео тактичний HUD: жест → команда → вектор → стан зв'язку → телеметрія дрона.
+1. starts the simulator at `http://127.0.0.1:8000` and opens the browser;
+2. turns on the camera and recognizes you as the **owner** (face biometrics);
+3. finds your hands (MediaPipe, 21 landmarks) and **recognizes gestures**;
+4. converts a gesture into a vector `[v_x, v_y, v_z, yaw_rate, action]` and sends it to the simulator over WebSocket 20 times per second;
+5. shows a tactical HUD in the video window: gesture → command → vector → link status → drone telemetry.
 
-> ⚠️ Керування активне **лише для жестів хазяїна** — руки сторонніх людей ігноруються,
-> бо MediaPipe-скелет береться тільки для тіла, чиє обличчя збіглося з профілем хазяїна.
-
----
-
-## 📑 Зміст
-
-- [Швидкий старт](#-швидкий-старт)
-- [Вимоги](#-вимоги)
-- [Встановлення](#-встановлення)
-- [Запуск](#-запуск)
-- [Жести та команди](#-жести-та-команди)
-- [Протокол команд (вектор)](#-протокол-команд-вектор)
-- [Як це працює всередині](#-як-це-працює-всередині)
-- [Структура репозиторію](#-структура-репозиторію)
-- [Клавіші та CLI](#-клавіші-та-cli)
-- [Тести](#-тести)
-- [Проблеми та рішення](#-проблеми-та-рішення)
-- [GitHub: клонувати / запулити / запустити](#-github-клонувати--запулити--запустити)
-- [Як додати свій жест або підключити реальний дрон](#-як-додати-свій-жест-або-підключити-реальний-дрон)
+> ⚠️ Control is active **only for the owner's gestures** — hands of other people are ignored,
+> because the MediaPipe skeleton is only taken for the body whose face matched the owner's profile.
 
 ---
 
-## ⚡ Швидкий старт
+## 📑 Table of contents
+
+- [Quick start](#-quick-start)
+- [Requirements](#-requirements)
+- [Installation](#-installation)
+- [Running](#-running)
+- [Gestures and commands](#-gestures-and-commands)
+- [Command protocol (vector)](#-command-protocol-vector)
+- [How it works internally](#-how-it-works-internally)
+- [Repository structure](#-repository-structure)
+- [Keys and CLI](#-keys-and-cli)
+- [Tests](#-tests)
+- [Troubleshooting](#-troubleshooting)
+- [GitHub: clone / pull / run](#-github-clone--pull--run)
+- [How to add your own gesture or connect a real drone](#-how-to-add-your-own-gesture-or-connect-a-real-drone)
+
+---
+
+## ⚡ Quick start
 
 ```bash
-# 1. Клонувати
+# 1. Clone
 git clone https://github.com/fawerty505-art/MedusaAlfa MedusaAlfa
 cd MedusaAlfa
 
-# 2. Віртуальне середовище + залежності
+# 2. Virtual environment + dependencies
 python3 -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 
-# 3. Запустити ВСЕ (симулятор + камера + жести)
+# 3. Run EVERYTHING (simulator + camera + gestures)
 python3 medusa_webcam.py
 ```
 
-Що станеться далі:
+What happens next:
 
-1. у терміналі з'явиться банер із адресою симулятора;
-2. автоматично відкриється браузер на `http://127.0.0.1:8000` (якщо ні — відкрийте вручну);
-3. відкриється вікно з камерою **«Medusa Eye // ESP32 VGA Simulator»**;
-4. станьте перед камерою та натисніть **`R`** — обличчя запам'ятається як хазяїн;
-5. покажіть долоню → дрон тримає позицію; покажіть ☝️ → злітає; ✌️ → летить до вас.
+1. a banner with the simulator address appears in the terminal;
+2. the browser opens automatically at `http://127.0.0.1:8000` (if not, open it manually);
+3. a camera window **"Medusa Eye // ESP32 VGA Simulator"** opens;
+4. stand in front of the camera and press **`R`** — your face is remembered as the owner;
+5. show an open palm → the drone holds position; show ☝️ → it takes off; ✌️ → it flies toward you.
 
-**Камера ESP32-CAM замість веб-камери:**
+**ESP32-CAM instead of a webcam:**
 
 ```bash
 python3 medusa_eye.py --ip 10.21.246.241 --port 80
@@ -73,32 +73,32 @@ python3 medusa_eye.py --ip 10.21.246.241 --port 80
 
 ---
 
-## 💻 Вимоги
+## 💻 Requirements
 
-| Компонент | Версія / примітка |
+| Component | Version / note |
 |---|---|
-| Python | **3.9 – 3.14** (перевірено на 3.14.3) |
-| ОС | macOS, Linux, Windows (з веб-камерою) |
-| Браузер | Chrome / Safari / Firefox з WebGL (для симулятора) |
-| Інтернет | потрібен **перший раз** — завантажуються моделі (`yolov8n-pose.pt`, `hand_landmarker.task`) і Three.js з CDN |
-| Камера | вбудована веб-камера **або** ESP32-CAM (TCP-стрім) |
-| CPU | будь-який сучасний; GPU не обов'язковий (YOLOv8n-pose працює на CPU ~14 мс/кадр) |
+| Python | **3.9 – 3.14** (tested on 3.14.3) |
+| OS | macOS, Linux, Windows (with a webcam) |
+| Browser | Chrome / Safari / Firefox with WebGL (for the simulator) |
+| Internet | required **the first time** — models (`yolov8n-pose.pt`, `hand_landmarker.task`) and Three.js from a CDN are downloaded |
+| Camera | built-in webcam **or** ESP32-CAM (TCP stream) |
+| CPU | any modern one; a GPU is not required (YOLOv8n-pose runs on CPU at ~14 ms/frame) |
 
-Порти, які мають бути вільними: **8000** (HTTP-UI симулятора) і **8765** (WebSocket-релей).
+Ports that must be free: **8000** (simulator HTTP UI) and **8765** (WebSocket relay).
 
 ---
 
-## 🔧 Встановлення
+## 🔧 Installation
 
-### 1. Системні залежності
+### 1. System dependencies
 
-`face_recognition` використовує `dlib`, а той компілюється з вихідних кодів — потрібні CMake і компілятор.
+`face_recognition` uses `dlib`, which is compiled from source — you need CMake and a compiler.
 
 **macOS**
 
 ```bash
 brew install cmake
-xcode-select --install        # якщо ще не встановлено
+xcode-select --install        # if not installed yet
 ```
 
 **Ubuntu / Debian**
@@ -111,10 +111,10 @@ sudo apt install -y python3-venv python3-dev build-essential cmake \
 
 **Windows**
 
-1. Встановіть [CMake](https://cmake.org/download/) та **Visual Studio Build Tools** (Desktop development with C++).
-2. Використовуйте Python 3.10–3.12 (найкраща сумісність із `dlib`/`mediapipe`).
+1. Install [CMake](https://cmake.org/download/) and **Visual Studio Build Tools** (Desktop development with C++).
+2. Use Python 3.10–3.12 (best compatibility with `dlib`/`mediapipe`).
 
-### 2. Python-середовище
+### 2. Python environment
 
 ```bash
 python3 -m venv .venv
@@ -124,28 +124,28 @@ python3 -m pip install --upgrade pip wheel
 python3 -m pip install -r requirements.txt
 ```
 
-> ⚠️ **Не робіть `pip install --upgrade setuptools`.** `face_recognition_models` виконує
-> `import pkg_resources`, а починаючи з `setuptools 82` цього модуля немає — програма впаде при
-> старті. `requirements.txt` уже фіксує `setuptools<81`. Якщо все ж зламали:
+> ⚠️ **Do not run `pip install --upgrade setuptools`.** `face_recognition_models` executes
+> `import pkg_resources`, and starting with `setuptools 82` that module no longer exists — the program will crash on
+> startup. `requirements.txt` already pins `setuptools<81`. If you broke it anyway:
 > `python3 -m pip install "setuptools<81"`.
 
-`requirements.txt` містить:
+`requirements.txt` contains:
 
 ```
 opencv-python   mediapipe   ultralytics   face-recognition   numpy   websockets
 ```
 
-### 3. Моделі (завантажуються автоматично)
+### 3. Models (downloaded automatically)
 
-| Файл | Куди | Коли |
+| File | Where | When |
 |---|---|---|
-| `hand_landmarker.task` (~7.5 МБ) | `models/` | при першому запуску, якщо файлу немає |
-| `yolov8n-pose.pt` (~6.8 МБ) | `models/` | при першому запуску (Ultralytics) |
-| `owner_face.npy` | `data/` | створюється вами клавішею `R` |
+| `hand_landmarker.task` (~7.5 MB) | `models/` | on first run, if the file is missing |
+| `yolov8n-pose.pt` (~6.8 MB) | `models/` | on first run (Ultralytics) |
+| `owner_face.npy` | `data/` | created by you with the `R` key |
 
-Усі три файли є у `.gitignore` — у репозиторії їх немає (моделі качаються, біометрія не публікується).
+All three files are in `.gitignore` — they are not in the repository (models are downloaded, biometrics are never published).
 
-Якщо інтернету немає — завантажте вручну:
+If there is no internet connection, download them manually:
 
 ```bash
 mkdir -p models data
@@ -156,158 +156,158 @@ curl -L -o models/hand_landmarker.task \
 
 ---
 
-## 🚀 Запуск
+## 🚀 Running
 
-### Варіант A — веб-камера (основний, для тестів)
+### Option A — webcam (main, for testing)
 
 ```bash
 python3 medusa_webcam.py
 ```
 
-### Варіант B — ESP32-CAM
+### Option B — ESP32-CAM
 
 ```bash
-python3 medusa_eye.py                          # IP/TCP за останнім значенням: 10.21.246.241:80
+python3 medusa_eye.py                          # IP/TCP with the last known value: 10.21.246.241:80
 python3 medusa_eye.py --ip 192.168.1.50 --port 80
-python3 medusa_eye.py --source webcam          # те саме, що варіант A
+python3 medusa_eye.py --source webcam          # same as option A
 ```
 
-Для ESP32 використовуйте IP, який скетч виводить у Serial Monitor після підключення до Wi-Fi
-(`Assigned IP`), та порт `80`. Закрийте `CameraWebServer/esp32_camera_viewer.py` перед запуском
-Medusa: скетч обслуговує лише одного TCP-клієнта одночасно.
+For the ESP32, use the IP that the sketch prints in the Serial Monitor after connecting to Wi-Fi
+(`Assigned IP`) and port `80`. Close `CameraWebServer/esp32_camera_viewer.py` before launching
+Medusa: the sketch serves only one TCP client at a time.
 
-### Варіант C — симулятор уже запущений окремо
+### Option C — the simulator is already running separately
 
 ```bash
-# термінал 1
+# terminal 1
 python3 sim/server.py
 
-# термінал 2
+# terminal 2
 python3 medusa_webcam.py --no-sim
 ```
 
-### Варіант D — тільки симулятор (без CV)
+### Option D — simulator only (no CV)
 
 ```bash
 python3 sim/server.py                        # http://127.0.0.1:8000
-python3 sim/test_sender.py                   # демонстраційний політ (скриптований)
-python3 sim/test_sender.py --loop            # нескінченний політ
+python3 sim/test_sender.py                   # demo flight (scripted)
+python3 sim/test_sender.py --loop            # endless flight
 ```
 
-### Що ви побачите
+### What you will see
 
-**Вікно відео (OpenCV):**
+**Video window (OpenCV):**
 
-- жовтий квадрат — тіло хазяїна, зелений — обличчя (слідує за нахилом голови);
-- рожево-фіолетовий скелет — кисті рук хазяїна;
-- права нижня панель — `GESTURE FLIGHT CONTROL`: розпізнаний жест, вектор, стан WebSocket, телеметрія дрона (статус, висота, курс);
-- по центру — велике підтвердження `TAKEOFF` / `LAND`.
+- yellow square — the owner's body, green — the face (follows the head tilt);
+- pink-purple skeleton — the owner's hands;
+- bottom-right panel — `GESTURE FLIGHT CONTROL`: recognized gesture, vector, WebSocket status, drone telemetry (status, altitude, heading);
+- in the center — a large `TAKEOFF` / `LAND` confirmation.
 
-**Браузер:** 3D-сцена 50×50 м, дрон, HUD із телеметрією; у лівому верхньому куті індикатор `WS: CONNECTED`.
+**Browser:** a 3D scene of 50×50 m, the drone, and a HUD with telemetry; a `WS: CONNECTED` indicator in the top-left corner.
 
 ---
 
-## ✋ Жести та команди
+## ✋ Gestures and commands
 
-Керування **двома руками**. Розпізнається **кількість розігнутих пальців** (геометрія стійка до повороту
-кисті, масштабу та освітлення). Великий палець не враховується.
+Control uses **both hands**. The program recognizes the **number of extended fingers** (the geometry is robust to hand
+rotation, scale and lighting). The thumb is not counted.
 
-**ЛІВА рука — команди** (зліт, посадка, поворот):
+**LEFT hand — commands** (takeoff, landing, turning):
 
-| Жест | Вектор (за замовчуванням) | Дія дрона |
+| Gesture | Vector (default) | Drone action |
 |---|---|---|
-| ☝️ 1 палець | `[0, 0, 0, 0, 1]` | **TAKEOFF** — злетіти на 2 м |
-| ✊ Кулак | `[0, 0, 0, 0, 2]` | **LAND** — сісти |
-| ✌️ 2 пальці | `[0, 0, 0, -60, 0]` | **TURN LEFT** — крутитися вліво |
-| ✋ Долоня | `[0, 0, 0, +60, 0]` | **TURN RIGHT** — крутитися вправо |
+| ☝️ 1 finger | `[0, 0, 0, 0, 1]` | **TAKEOFF** — take off to 2 m |
+| ✊ Fist | `[0, 0, 0, 0, 2]` | **LAND** — land |
+| ✌️ 2 fingers | `[0, 0, 0, -60, 0]` | **TURN LEFT** — rotate left |
+| ✋ Palm | `[0, 0, 0, +60, 0]` | **TURN RIGHT** — rotate right |
 
-**ПРАВА рука — рух** (вперед, назад, вліво, вправо):
+**RIGHT hand — movement** (forward, backward, left, right):
 
-| Жест | Вектор (за замовчуванням) | Дія дрона |
+| Gesture | Vector (default) | Drone action |
 |---|---|---|
-| ☝️ 1 палець | `[+1.5, 0, 0, 0, 0]` | **FORWARD** — вперед |
-| ✌️ 2 пальці | `[-1.2, 0, 0, 0, 0]` | **BACKWARD** — назад |
-| ✊ Кулак | `[0, -1.2, 0, 0, 0]` | **LEFT** — вліво (боком) |
-| ✋ Долоня | `[0, +1.2, 0, 0, 0]` | **RIGHT** — вправо (боком) |
+| ☝️ 1 finger | `[+1.5, 0, 0, 0, 0]` | **FORWARD** — forward |
+| ✌️ 2 fingers | `[-1.2, 0, 0, 0, 0]` | **BACKWARD** — backward |
+| ✊ Fist | `[0, -1.2, 0, 0, 0]` | **LEFT** — sideways to the left |
+| ✋ Palm | `[0, +1.2, 0, 0, 0]` | **RIGHT** — sideways to the right |
 
-По **4 жести на кожну руку**. Інші пози (наприклад, 3 пальці) нічого не роблять. Якщо права рука не
-показує жодного з жестів або її не видно — дрон просто висить (hover).
+**4 gestures per hand.** Other poses (for example, 3 fingers) do nothing. If the right hand
+shows none of the gestures or is not visible, the drone simply hovers.
 
-Жести обох рук **комбінуються**: права «вперед» + ліва «поворот вправо» = політ дугою. Якщо ліва рука
-дає `TAKEOFF`/`LAND`, рух ігнорується.
+Gestures of both hands are **combined**: right "forward" + left "turn right" = flying in an arc. If the left hand
+gives `TAKEOFF`/`LAND`, movement is ignored.
 
-**Права/ліва рука.** Сторона рахується **від користувача**. MediaPipe очікує дзеркальний кадр і тому для
-звичайної камери плутає руки; програма це враховує. Якщо MediaPipe дав обом рукам однакову мітку, сторона
-визначається за позицією в кадрі. Якщо ваша камера показує дзеркальне зображення (selfie) — додайте
-`--mirrored`; для лівші — `--swap-hands` (права = команди, ліва = рух).
+**Right/left hand.** The side is counted **from the user's point of view**. MediaPipe expects a mirrored frame and therefore
+mixes up the hands for a regular camera; the program accounts for this. If MediaPipe gave both hands the same label, the side
+is determined by position in the frame. If your camera shows a mirrored image (selfie), add
+`--mirrored`; for left-handed users use `--swap-hands` (right = commands, left = movement).
 
-**Підказки на екрані.** Над кожною кистю підпис `LEFT HAND [CMD]` / `RIGHT HAND [MOVE]`, а в панелі
-`GESTURE` показано, що розпізнано на кожній руці: `L:POINT R:VICTORY -> TAKEOFF`. Якщо підпис
-рук переплутаний — запустіть з `--mirrored` або `--swap-hands`.
+**On-screen hints.** Above each hand there is a `LEFT HAND [CMD]` / `RIGHT HAND [MOVE]` label, and the `GESTURE` panel
+shows what is recognized on each hand: `L:POINT R:VICTORY -> TAKEOFF`. If the hand labels
+are swapped, run with `--mirrored` or `--swap-hands`.
 
-Повну таблицю у терміналі:
+Full table in the terminal:
 
 ```bash
 python3 medusa_webcam.py --gestures-table
 ```
 
-**Захист від випадкових команд:**
+**Protection against accidental commands:**
 
-| Механізм | Значення | Навіщо |
+| Mechanism | Value | Purpose |
 |---|---|---|
-| Стабільність жесту | 0.18 с (`--stable-time`) | випадкове «мерехтіння» пальців не змінює команду |
-| Частота відправки | 20 Гц (`--link-rate`) | симулятор отримує свіжий вектор |
-| Safety-timeout симулятора | 0.5 с | немає даних → дрон плавно переходить у hover |
-| Хазяїн зник з кадру | 8 с (`--auto-land`) | автоматичний `LAND` (0 = вимкнути). Якщо хазяїн у кадрі, а руки не видно — просто hover |
-| Миготіння руки | 0.35 с | один кадр без детекції не перериває маневр |
-| Застарілі команди | 0.4 с | вектор старший за 0.4 с не повторюється: завис цикл або натиснуто `G` → мовчання → hover у симуляторі |
-| Тільки руки хазяїна | — | сторонні люди не керують дроном |
-| Головний вимикач | `G` / `--no-gestures` | миттєво припинити команди |
+| Gesture stability | 0.18 s (`--stable-time`) | random finger "flicker" does not change the command |
+| Send rate | 20 Hz (`--link-rate`) | the simulator receives a fresh vector |
+| Simulator safety timeout | 0.5 s | no data → the drone smoothly switches to hover |
+| Owner left the frame | 8 s (`--auto-land`) | automatic `LAND` (0 = disabled). If the owner is in the frame but hands are not visible — just hover |
+| Hand flicker | 0.35 s | a single frame without detection does not interrupt a maneuver |
+| Stale commands | 0.4 s | a vector older than 0.4 s is not repeated: the loop froze or `G` was pressed → silence → hover in the simulator |
+| Owner's hands only | — | other people cannot control the drone |
+| Master switch | `G` / `--no-gestures` | instantly stop commands |
 
 
 ---
 
-## 🔌 Протокол команд (вектор)
+## 🔌 Command protocol (vector)
 
-Симулятор приймає рівно **5 чисел** (JSON-масив):
+The simulator accepts exactly **5 numbers** (a JSON array):
 
 ```
 [v_x, v_y, v_z, yaw_rate, action]
 ```
 
-| Поле | Од. | Система координат | Додатне значення |
+| Field | Unit | Coordinate system | Positive value |
 |---|---|---|---|
-| `v_x` | м/с | **корпус дрона** | вперед (ніс) |
-| `v_y` | м/с | **корпус дрона** | вправо |
-| `v_z` | м/с | світова вертикаль | вгору |
-| `yaw_rate` | °/с | — | поворот за годинниковою стрілкою (вправо) |
-| `action` | — | — | `0` HOVER · `1` TAKEOFF (2 м) · `2` LAND · `3` RESET |
+| `v_x` | m/s | **drone body** | forward (nose) |
+| `v_y` | m/s | **drone body** | right |
+| `v_z` | m/s | world vertical | up |
+| `yaw_rate` | °/s | — | clockwise rotation (right) |
+| `action` | — | — | `0` HOVER · `1` TAKEOFF (2 m) · `2` LAND · `3` RESET |
 
-Симулятор додатково приймає `{"cmd": [...]}` та `{"vector": [...]}` і сам обмежує швидкості:
+The simulator also accepts `{"cmd": [...]}` and `{"vector": [...]}` and limits the speeds itself:
 
-| Ліміт | Значення |
+| Limit | Value |
 |---|---|
-| Горизонтальна швидкість | 8 м/с |
-| Вертикальна швидкість | 4 м/с |
-| Yaw rate | 180 °/с |
-| Висота | 40 м |
-| Геозона | ±24.5 м |
-| Safety-timeout | 0.5 с без вектора → hover |
+| Horizontal speed | 8 m/s |
+| Vertical speed | 4 m/s |
+| Yaw rate | 180 °/s |
+| Altitude | 40 m |
+| Geofence | ±24.5 m |
+| Safety timeout | 0.5 s without a vector → hover |
 
-**Двобічний обмін** (WebSocket-релей `sim/server.py`):
+**Two-way exchange** (WebSocket relay `sim/server.py`):
 
 ```
-python (MedusaAlfa)  --[vx,vy,vz,yaw,action]-->  server.py  -->  браузер (app.js)
-python (MedusaAlfa)  <--{"telemetry":{...}}----  server.py  <--  браузер
+python (MedusaAlfa)  --[vx,vy,vz,yaw,action]-->  server.py  -->  browser (app.js)
+python (MedusaAlfa)  <--{"telemetry":{...}}----  server.py  <--  browser
 ```
 
-Приклад телеметрії, яку читає HUD:
+Example of telemetry read by the HUD:
 
 ```json
 {"telemetry": {"x": 1.2, "y": 2.14, "z": -0.4, "heading": 92.5, "status": "FLYING"}}
 ```
 
-Перевірити канал без камери (браузер має бути відкритий — релей пересилає вектор *іншим* клієнтам):
+Check the channel without a camera (the browser must be open — the relay forwards the vector to *other* clients):
 
 ```bash
 python3 - <<'PY'
@@ -320,72 +320,76 @@ asyncio.run(main())
 PY
 ```
 
-> Порти можна змінювати (`--http-port`, `--ws-port`): сторінка отримує фактичний WS-порт
-> з `/sim-config.js`, який генерує `sim/server.py`, тому нічого правити в JS не потрібно.
+> Ports can be changed (`--http-port`, `--ws-port`): the page gets the actual WS port
+> from `/sim-config.js`, which is generated by `sim/server.py`, so nothing needs to be edited in the JS.
 
 ---
 
-## 🧠 Як це працює всередині
+## 🧠 How it works internally
 
 ```mermaid
 flowchart LR
-    CAM["📷 ThreadedCamera / ESP32Stream<br/>(фоновий потік, 0 мс)"] --> YOLO["🎯 YOLOv8n-pose + ByteTrack<br/>imgsz=320, ~14 мс"]
-    YOLO --> PEOPLE["Тіла людей + 17 keypoints"]
-    PEOPLE --> CROP["✂️ Кроп голови за носом/очима"]
-    CROP --> FACE["🧠 face_recognition (dlib)<br/>поріг 0.52"]
+    CAM["📷 ThreadedCamera / ESP32Stream<br/>(background thread, 0 ms)"] --> YOLO["🎯 YOLOv8n-pose + ByteTrack<br/>imgsz=320, ~14 ms"]
+    YOLO --> PEOPLE["People bodies + 17 keypoints"]
+    PEOPLE --> CROP["✂️ Head crop based on nose/eyes"]
+    CROP --> FACE["🧠 face_recognition (dlib)<br/>threshold 0.52"]
     FACE --> OWNER["🔒 owner_track_id"]
-    OWNER --> MP["✋ MediaPipe HandLandmarker<br/>21 точка, VIDEO mode"]
-    MP --> GEST["🖐 gestures.py<br/>Posture + debounce 0.18 с"]
+    OWNER --> MP["✋ MediaPipe HandLandmarker<br/>21 landmarks, VIDEO mode"]
+    MP --> GEST["🖐 gestures.py<br/>Posture + debounce 0.18 s"]
     GEST --> MAP["📐 GestureMapper -> [vx,vy,vz,yaw,action]"]
-    MAP --> LINK["🔗 DroneLink<br/>ws://127.0.0.1:8765, 20 Гц"]
-    LINK --> SRV["🛰 sim/server.py<br/>WebSocket-релей"]
-    SRV --> WEB["🌐 sim/app.js (Three.js)<br/>фізика + HUD"]
+    MAP --> LINK["🔗 DroneLink<br/>ws://127.0.0.1:8765, 20 Hz"]
+    LINK --> SRV["🛰 sim/server.py<br/>WebSocket relay"]
+    SRV --> WEB["🌐 sim/app.js (Three.js)<br/>physics + HUD"]
     WEB -.->|telemetry| SRV
     SRV -.->|telemetry| LINK
 ```
 
-**Потоки в процесі Python:**
+**Threads in the Python process:**
 
-| Потік | Що робить |
+| Thread | What it does |
 |---|---|
-| Головний | OpenCV-цикл: кадр → YOLO → руки → жест → HUD → `cv2.imshow` |
-| `ThreadedCamera` (або ESP32) | безперервно читає кадри, щоб `read()` ніколи не блокувався |
-| `AsyncFaceVerifier` | біометрія обличчя у фоні (не гальмує FPS) |
-| `DroneLink` | окремий asyncio-цикл у своєму потоці: connect / send 20 Гц / recv телеметрії / reconnect |
-| `sim/server.py` | **окремий процес**: HTTP-сервер (потік) + WebSocket-релей (asyncio) |
+| Main | Display loop: latest camera frame + last ready CV overlay → HUD → `cv2.imshow`, keyboard handling |
+| `medusa-cv` | CV loop: new frame → YOLO → hands → gesture → drone command (runs independently of display) |
+| `medusa-hands` | MediaPipe hands, computed **in parallel** with YOLO |
+| `ThreadedCamera` (or ESP32) | continuously reads frames so that `read()` never blocks |
+| `AsyncFaceVerifier` | face biometrics in the background (does not slow down FPS) |
+| `DroneLink` | a separate asyncio loop in its own thread: connect / send at 20 Hz / receive telemetry / reconnect |
+| `sim/server.py` | **a separate process**: HTTP server (thread) + WebSocket relay (asyncio) |
 
-**Модулі пакета `medusa/`:**
+The HUD shows two numbers: `FPS` is the video display rate, and `AI` is the rate of the full CV cycle.
 
-| Файл | Відповідальність |
+**Modules of the `medusa/` package:**
+
+| File | Responsibility |
 |---|---|
-| `eye.py` | `MedusaEye`: камера, YOLO-pose, біометрія, MediaPipe, HUD, головний цикл |
-| `esp32_stream.py` | TCP-клієнт ESP32-CAM (4-байтна довжина кадру + JPEG) |
-| `gestures.py` | Геометрія кисті → `Posture` → `DroneCommand` (без залежностей від CV — легко тестувати) |
-| `controller.py` | `GestureDroneController`: жест + зв'язок + режим ON/OFF |
-| `drone_link.py` | `DroneLink`: потокобезпечний WebSocket-клієнт із автоперепідключенням |
-| `sim_launcher.py` | `SimLauncher`: піднімає/зупиняє `sim/server.py`, відкриває браузер |
-| `overlay.py` | Панель `GESTURE FLIGHT CONTROL` та підтвердження дій |
-| `paths.py` | Єдині шляхи (`models/`, `data/`, `sim/`) від кореня репозиторію |
-| `cli.py` | Спільний CLI для `medusa_webcam.py` / `medusa_eye.py` |
+| `eye.py` | `MedusaEye`: camera, YOLO-pose, biometrics, MediaPipe, HUD, main loop |
+| `esp32_stream.py` | ESP32-CAM TCP client (4-byte frame length + JPEG) |
+| `gestures.py` | Hand geometry → `Posture` → `DroneCommand` (no CV dependencies — easy to test) |
+| `controller.py` | `GestureDroneController`: gesture + link + ON/OFF mode |
+| `drone_link.py` | `DroneLink`: thread-safe WebSocket client with auto-reconnect |
+| `sim_launcher.py` | `SimLauncher`: starts/stops `sim/server.py`, opens the browser |
+| `overlay.py` | `GESTURE FLIGHT CONTROL` panel and action confirmations |
+| `paths.py` | Unified paths (`models/`, `data/`, `sim/`) relative to the repository root |
+| `cli.py` | Shared CLI for `medusa_webcam.py` / `medusa_eye.py` |
 
-**Чому жест = кількість пальців, а не пози?** Кількість розігнутих пальців обчислюється через
-порівняння відстаней «кінчик↔зап'ястя» та «PIP↔зап'ястя» — це інваріантно до повороту кисті,
-відстані до камери та кута нахилу. Пози (наприклад, «великий палець вгору») ламаються при
-повороті руки на 90°.
+**Why is a gesture = a finger count rather than a pose?** The number of extended fingers is computed by
+comparing the "fingertip↔wrist" and "PIP↔wrist" distances — this is invariant to hand rotation,
+distance from the camera and tilt angle. Poses (for example, "thumbs up") break when
+the hand is rotated by 90°.
 
 ---
 
-## 📂 Структура репозиторію
+## 📂 Repository structure
 
 ```
 MedusaAlfa/
-├── medusa_webcam.py          ← ЗАПУСК №1: веб-камера + симулятор + жести
-├── medusa_eye.py             ← ЗАПУСК №2: ESP32-CAM + симулятор + жести
+├── medusa_webcam.py          ← LAUNCH #1: webcam + simulator + gestures
+├── medusa_eye.py             ← LAUNCH #2: ESP32-CAM + simulator + gestures
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
 │
-├── medusa/                   ← комп'ютерний зір + керування
+├── medusa/                   ← computer vision + control
 │   ├── eye.py
 │   ├── esp32_stream.py
 │   ├── gestures.py
@@ -396,166 +400,168 @@ MedusaAlfa/
 │   ├── paths.py
 │   └── cli.py
 │
-├── sim/                      ← симулятор дрона
+├── sim/                      ← drone simulator
 │   ├── server.py             HTTP :8000 + WebSocket :8765
-│   ├── index.html            HUD + завантаження Three.js r128
-│   ├── app.js                фізика дрона, 3D-сцена, WebSocket-клієнт
+│   ├── index.html            HUD + loading Three.js r128
+│   ├── app.js                drone physics, 3D scene, WebSocket client
 │   ├── styles.css
-│   └── test_sender.py        демонстраційний політ
+│   └── test_sender.py        demo flight
 │
-├── models/                   (у git лише .gitkeep — моделі качаються самі)
-├── data/                     (у git лише .gitkeep — owner_face.npy ігнорується)
+├── models/                   (only .gitkeep in git — models download themselves)
+├── data/                     (only .gitkeep in git — owner_face.npy is ignored)
 └── tests/
-    ├── test_gestures.py      розпізнавання жестів і мапінг (без камери)
-    ├── test_controller.py    контролер жестів
-    ├── test_drone_link.py    наскрізний тест: link → server.py → «браузер»
-    └── test_esp32_stream.py  протокол ESP32-CAM
+    ├── test_gestures.py      gesture recognition and mapping (no camera)
+    ├── test_controller.py    gesture controller
+    ├── test_drone_link.py    end-to-end test: link → server.py → "browser"
+    └── test_esp32_stream.py  ESP32-CAM protocol
 ```
 
 
 ---
 
-## ⌨️ Клавіші та CLI
+## ⌨️ Keys and CLI
 
-### Клавіші у вікні відео
+### Keys in the video window
 
-| Клавіша | Дія |
+| Key | Action |
 |---|---|
-| **`G`** | Увімкнути / вимкнути керування дроном жестами (CV продовжує працювати) |
-| **`R`** | Зареєструвати хазяїна (дивіться в камеру) → `data/owner_face.npy` |
-| **`C`** | Скинути профіль хазяїна |
-| **`D`** | Debug-HUD (Track ID, кількість рук, поточна поза) |
-| **`Q`** / **`Esc`** | Вихід (гасить симулятор, якщо його запускали ми) |
+| **`G`** | Enable / disable gesture drone control (CV keeps running) |
+| **`R`** | Register the owner (look at the camera) → `data/owner_face.npy` |
+| **`C`** | Clear the owner's profile |
+| **`D`** | Debug HUD (Track ID, number of hands, current pose) |
+| **`Q`** / **`Esc`** | Quit (stops the simulator if we started it) |
 
-### Клавіші у браузері (симулятор)
+### Keys in the browser (simulator)
 
-| Клавіша | Дія |
+| Key | Action |
 |---|---|
-| `C` | Камера ORBIT ↔ FOLLOW |
-| `M` | Ручне керування з клавіатури (WASD / Space / Shift / QE) |
+| `C` | Camera ORBIT ↔ FOLLOW |
+| `M` | Manual keyboard control (WASD / Space / Shift / QE) |
 | `T` / `L` / `R` | Takeoff / Land / Reset |
 
-### 🎙 Голосові команди (ElevenLabs Speech-to-Text)
+### 🎙 Voice commands (ElevenLabs Speech-to-Text)
 
-Push-to-talk: **зажми `SPACE`**, скажи команду, **відпусти `SPACE`**.
+Push-to-talk: **hold `SPACE`**, say the command, **release `SPACE`**.
 
-| Слово | Дія дрона |
+| Word | Drone action |
 |---|---|
-| **`fly`** | TAKEOFF — злетіти на 2 м |
-| **`sit`** | LAND — сісти |
+| **`fly`** | TAKEOFF — take off to 2 m |
+| **`sit`** | LAND — land |
 
-Розпізнавання — `POST https://api.elevenlabs.io/v1/speech-to-text` (модель `scribe_v2`, мова `en`).
-Голос має пріоритет над жестами протягом ~1 с після команди, і працює навіть з `G = OFF`.
-
-```bash
-# ключ — ТІЛЬКИ через змінну оточення (у код і git не потрапляє)
-export ELEVENLABS_API_KEY="ваш_ключ"
-python3 medusa_webcam.py                 # голос ON за замовчуванням
-python3 medusa_webcam.py --no-voice      # без голосу
-python3 medusa_webcam.py --voice-lang ""  # авто-визначення мови
-```
-
-Вимоги macOS: `brew install portaudio`; у «Системні налаштування → Конфіденційність» дозволити
-**Мікрофон** та **Моніторинг введення** (Input Monitoring) для терміналу / VS Code — інакше SPACE не
-розпізнається. SPACE ловиться глобально, тож поки він зажатий, у інших програмах він теж "натиснутий".
-
-### Основні опції CLI
+Recognition uses `POST https://api.elevenlabs.io/v1/speech-to-text` (model `scribe_v2`, language `en`).
+Voice takes priority over gestures for ~1 s after a command, and works even with `G = OFF`.
 
 ```bash
-python3 medusa_webcam.py --help            # повний список
-python3 medusa_webcam.py --gestures-table  # таблиця жестів і векторів
+# the key goes ONLY through an environment variable (it does not end up in code or git)
+export ELEVENLABS_API_KEY="your_key"
+python3 medusa_webcam.py                 # voice ON by default
+python3 medusa_webcam.py --no-voice      # without voice
+python3 medusa_webcam.py --voice-lang ""  # auto-detect language
 ```
 
-| Опція | За замовчуванням | Опис |
+macOS requirements: `brew install portaudio`; in "System Settings → Privacy & Security" allow
+**Microphone** and **Input Monitoring** for your terminal / VS Code — otherwise SPACE is not
+detected. SPACE is captured globally, so while it is held down it is also "pressed" in other applications.
+
+### Main CLI options
+
+```bash
+python3 medusa_webcam.py --help            # full list
+python3 medusa_webcam.py --gestures-table  # table of gestures and vectors
+```
+
+| Option | Default | Description |
 |---|---|---|
-| `--source {webcam,esp32}` | `webcam` (`medusa_eye.py`: `esp32`) | джерело відео |
-| `--camera N` | `0` | індекс локальної камери |
-| `--ip`, `--port` | `10.21.246.241`, `80` | адреса ESP32-CAM; IP беріть з Serial Monitor |
-| `--no-sim` | — | не запускати симулятор (уже працює) |
-| `--no-browser` | — | не відкривати браузер |
-| `--http-port`, `--ws-port` | `8000`, `8765` | порти симулятора |
-| `--ws-url` | — | готовий `ws://…` (перекриває порти) |
-| `--no-gestures` | — | тільки CV, без команд |
-| `--swap-hands` | — | поміняти ролі рук (права = команди, ліва = рух) — для лівші |
-| `--mirrored` | — | кадр дзеркальний (selfie); для webcam/ESP32 за замовчуванням не потрібен |
-| `--forward-speed` | `1.5` м/с | швидкість «вперед» |
-| `--backward-speed` | `1.2` м/с | швидкість «назад» |
-| `--strafe-speed` | `1.2` м/с | швидкість «вліво/вправо» |
-| `--yaw-speed` | `60` °/с | швидкість повороту вліво/вправо |
-| `--stable-time` | `0.18` с | скільки жест має протриматись |
-| `--auto-land` | `8` с | авто-`LAND`, якщо хазяїн зник (0 = вимкнути) |
-| `--link-rate` | `20` Гц | частота відправки векторів |
+| `--source {webcam,esp32}` | `webcam` (`medusa_eye.py`: `esp32`) | video source |
+| `--camera N` | `0` | local camera index |
+| `--ip`, `--port` | `10.21.246.241`, `80` | ESP32-CAM address; take the IP from the Serial Monitor |
+| `--no-sim` | — | do not start the simulator (already running) |
+| `--no-browser` | — | do not open the browser |
+| `--http-port`, `--ws-port` | `8000`, `8765` | simulator ports |
+| `--ws-url` | — | ready-made `ws://…` (overrides the ports) |
+| `--no-gestures` | — | CV only, no commands |
+| `--swap-hands` | — | swap hand roles (right = commands, left = movement) — for left-handed users |
+| `--mirrored` | — | the frame is mirrored (selfie); not needed for webcam/ESP32 by default |
+| `--forward-speed` | `1.5` m/s | "forward" speed |
+| `--backward-speed` | `1.2` m/s | "backward" speed |
+| `--strafe-speed` | `1.2` m/s | "left/right" speed |
+| `--yaw-speed` | `60` °/s | left/right turn speed |
+| `--stable-time` | `0.18` s | how long a gesture must be held |
+| `--auto-land` | `8` s | auto-`LAND` if the owner disappears (0 = disabled) |
+| `--link-rate` | `20` Hz | vector send rate |
 
-Приклади:
+Examples:
 
 ```bash
-# повільніше й безпечніше
+# slower and safer
 python3 medusa_webcam.py --forward-speed 0.8 --strafe-speed 0.6 --yaw-speed 40 --auto-land 5
 
-# для лівші: права рука = команди, ліва = рух
+# for left-handed users: right hand = commands, left = movement
 python3 medusa_webcam.py --swap-hands
 
-# тільки розпізнавання (без команд) — для відлагодження CV
+# recognition only (no commands) — for debugging CV
 python3 medusa_webcam.py --no-gestures
 
-# зовнішня USB-камера
+# external USB camera
 python3 medusa_webcam.py --camera 1
 
-# симулятор на інших портах
+# simulator on different ports
 python3 medusa_webcam.py --http-port 8100 --ws-port 8766
 ```
 
 ---
 
-## 🧪 Тести
+## 🧪 Tests
 
-Усі тести працюють **без камери** — кисть синтезується геометрично (21 точка), а симулятор
-піднімається як справжній підпроцес на вільних портах.
+All tests run **without a camera** — the hand is synthesized geometrically (21 landmarks), and the simulator
+is started as a real subprocess on free ports.
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Очікуваний результат:
+Expected result:
 
 ```
 Ran 65 tests in ~8s
 OK
 ```
 
-| Файл | Що перевіряє |
+| File | What it checks |
 |---|---|
-| `tests/test_gestures.py` | пальці/пози, мапінг у вектор, анти-дриґання, авто-лендінг, yaw, вибір руки |
-| `tests/test_controller.py` | `GestureDroneController`: відправка, режим OFF, `toggle`, `close` |
-| `tests/test_voice.py` | голосові команди: парсинг `fly`/`sit`, WAV, мок ElevenLabs, пріоритет голосу над жестами |
-| `tests/test_drone_link.py` | `DroneLink` + реальний `sim/server.py`: доставка вектора «браузеру», телеметрія, offline-стан |
-| `tests/test_esp32_stream.py` | TCP-протокол ESP32-CAM (4-байтна довжина + JPEG) |
+| `tests/test_gestures.py` | fingers/poses, mapping to a vector, anti-jitter, auto-landing, yaw, hand selection |
+| `tests/test_controller.py` | `GestureDroneController`: sending, OFF mode, `toggle`, `close` |
+| `tests/test_voice.py` | voice commands: parsing `fly`/`sit`, WAV, ElevenLabs mock, voice priority over gestures |
+| `tests/test_drone_link.py` | `DroneLink` + a real `sim/server.py`: vector delivery to the "browser", telemetry, offline state |
+| `tests/test_esp32_stream.py` | ESP32-CAM TCP protocol (4-byte length + JPEG) |
 
 
 ---
 
-## 🩺 Проблеми та рішення
+## 🩺 Troubleshooting
 
-| Симптом | Причина | Рішення |
+> Some messages are printed by the program in Ukrainian. They are quoted below as-is, with a translation, so you can match them in your terminal.
+
+| Symptom | Cause | Solution |
 |---|---|---|
-| `Missing dependency … websockets` | не встановлені залежності | `python3 -m pip install -r requirements.txt` |
-| `Cannot bind HTTP port 8000` | порт зайнятий | закрийте старий запуск або `--http-port 8100 --ws-port 8766` |
-| Браузер показує `WS: DISCONNECTED` | симулятор не запущено / інший порт | перевірте, що `sim/server.py` живе; `--ws-url ws://127.0.0.1:8765` |
-| Дрон не рухається, у HUD `LINK: OFFLINE` | Python не підключився до WS | дивіться термінал — там буде причина; перевірте порт |
-| `Не вдалося отримати відео з камери` | macOS не дав дозвіл / камера зайнята | System Settings → Privacy → Camera → Terminal/VS Code; закрийте Zoom/Meet |
-| Чорний екран у вікні відео | інший індекс камери | `--camera 1`, `--camera 2` |
-| `NO OWNER REGISTERED` | профіль не створено | натисніть `R`, дивлячись у камеру |
-| Хазяїн не фіксується | обличчя закрите / далеко | підійдіть ближче, зніміть маску, `D` для debug |
-| Жести не розпізнаються | рука не в кадрі / погане світло | тримайте кисть повністю в кадрі, долоня до камери |
-| Дрон смикається між командами | жести нестабільні | збільшіть `--stable-time 0.3` |
-| Ліва й права рука переплутані (підпис `[CMD]`/`[MOVE]` не на тій руці) | дзеркальна камера | `--mirrored` (або `--swap-hands`, якщо ви лівша) |
+| `Missing dependency … websockets` | dependencies are not installed | `python3 -m pip install -r requirements.txt` |
+| `Cannot bind HTTP port 8000` | the port is in use | close the previous run or use `--http-port 8100 --ws-port 8766` |
+| Browser shows `WS: DISCONNECTED` | the simulator is not running / a different port | check that `sim/server.py` is alive; `--ws-url ws://127.0.0.1:8765` |
+| The drone does not move, HUD shows `LINK: OFFLINE` | Python did not connect to the WS | look at the terminal — the reason will be there; check the port |
+| `Не вдалося отримати відео з камери` ("Could not get video from the camera") | macOS did not grant permission / the camera is busy | System Settings → Privacy → Camera → Terminal/VS Code; close Zoom/Meet |
+| Black screen in the video window | a different camera index | `--camera 1`, `--camera 2` |
+| `NO OWNER REGISTERED` | the profile has not been created | press `R` while looking at the camera |
+| The owner is not locked | the face is covered / too far away | move closer, take off the mask, press `D` for debug |
+| Gestures are not recognized | the hand is out of the frame / poor lighting | keep the whole hand in the frame, palm facing the camera |
+| The drone jerks between commands | unstable gestures | increase `--stable-time 0.3` |
+| Left and right hands are swapped (the `[CMD]`/`[MOVE]` label is on the wrong hand) | a mirrored camera | `--mirrored` (or `--swap-hands` if you are left-handed) |
 | `ModuleNotFoundError: pkg_resources` | `setuptools` ≥ 82 | `python3 -m pip install "setuptools<81"` |
-| `hand_landmarker.task` не качається | немає інтернету | завантажте вручну (див. «Моделі») |
-| `Could not build wheels for dlib` | немає CMake/компілятора | `brew install cmake` / `apt install cmake build-essential` |
-| Низький FPS (< 15) | слабкий CPU | закрийте зайві програми; зменште `YOLO_IMGSZ` у `medusa/eye.py` |
-| Вікно відео не закривається | завис OpenCV GUI | `Q` / `Esc`, потім Ctrl+C у терміналі |
+| `hand_landmarker.task` does not download | no internet | download it manually (see "Models") |
+| `Could not build wheels for dlib` | no CMake/compiler | `brew install cmake` / `apt install cmake build-essential` |
+| Low FPS (< 15) | a weak CPU | close other applications; reduce `YOLO_IMGSZ` in `medusa/eye.py`; compare the `FPS` and `AI` numbers in the HUD |
+| The video window does not close | OpenCV GUI hung | `Q` / `Esc`, then Ctrl+C in the terminal |
 
-У терміналі видно кожну зміну жесту — це найшвидший спосіб зрозуміти, де саме «застрягло»:
+Every gesture change is visible in the terminal — this is the fastest way to understand where exactly something "got stuck":
 
 ```
 🖐  Posture.VICTORY -> FORWARD / APPROACH  [+1.50, +0.00, +0.00, +0.0, 0]  (link: CONNECTED)
@@ -563,106 +569,106 @@ OK
 
 ---
 
-## 🌍 GitHub: клонувати / запулити / запустити
+## 🌍 GitHub: clone / pull / run
 
-### Перший push (репозиторій з нуля)
+### First push (a repository from scratch)
 
 ```bash
 cd MedusaAlfa
 git init -b main
 git add .
 git commit -m "MedusaAlfa: CV owner recognition + hand gestures -> WebGL drone simulator"
-git remote add origin https://github.com/<ВАШ_ЛОГІН>/<ВАШ_РЕПОЗИТОРІЙ>.git
+git remote add origin https://github.com/<YOUR_LOGIN>/<YOUR_REPOSITORY>.git
 git push -u origin main
 ```
 
-> `.gitignore` уже виключає `models/*.pt`, `models/*.task`, `data/*.npy`, `.venv/`, `__pycache__/`,
-> а також легасі-папки `MedusaAlfa/` і `web_drone_sim/` (залишки злиття).
-> **Не додавайте їх у git**: вкладений `.git` перетворюється на gitlink, і після клонування
-> на місці папки буде порожнеча.
+> `.gitignore` already excludes `models/*.pt`, `models/*.task`, `data/*.npy`, `.venv/`, `__pycache__/`,
+> as well as the legacy `MedusaAlfa/` and `web_drone_sim/` folders (leftovers of the merge).
+> **Do not add them to git**: a nested `.git` turns into a gitlink, and after cloning
+> the folder will be empty.
 
-### Хто клонує репозиторій
+### Whoever clones the repository
 
 ```bash
-git clone https://github.com/<ЛОГІН>/<РЕПО>.git
-cd <РЕПО>
+git clone https://github.com/<LOGIN>/<REPO>.git
+cd <REPO>
 python3 -m venv .venv && source .venv/bin/activate
 python3 -m pip install -r requirements.txt
 python3 medusa_webcam.py
 ```
 
-Перший запуск сам завантажить моделі (~15 МБ) і відкриє симулятор. Профіль хазяїна створюється
-локально клавішею `R` — у репозиторії його немає (персональні дані).
+The first run downloads the models itself (~15 MB) and opens the simulator. The owner's profile is created
+locally with the `R` key — it is not in the repository (personal data).
 
-### Оновлення (pull)
+### Updating (pull)
 
 ```bash
 git pull
-python3 -m pip install -r requirements.txt   # якщо змінилися залежності
+python3 -m pip install -r requirements.txt   # if dependencies changed
 python3 medusa_webcam.py
 ```
 
 ---
 
-## 🧩 Як додати свій жест або підключити реальний дрон
+## 🧩 How to add your own gesture or connect a real drone
 
-### 1. Новий жест
+### 1. A new gesture
 
-Усе в одному файлі — `medusa/gestures.py`:
+Everything is in one file — `medusa/gestures.py`:
 
 ```python
-# 1) додати позу
+# 1) add a pose
 class Posture(str, Enum):
     ...
     SHAKA = "shaka"
 
-# 2) навчити класифікатор (у classify_posture)
+# 2) teach the classifier (in classify_posture)
 if count == 0 and thumb and pinky:
     return Posture.SHAKA
 
-# 3) призначити команду потрібній руці: command_bindings() (ліва) або move_bindings() (права)
-Posture.SHAKA: GestureBinding("CLIMB", vz=0.9)     # vx/vy/vz — м/с, yaw — °/с, action — 0/1/2/3
+# 3) assign a command to the desired hand: command_bindings() (left) or move_bindings() (right)
+Posture.SHAKA: GestureBinding("CLIMB", vz=0.9)     # vx/vy/vz — m/s, yaw — °/s, action — 0/1/2/3
 ```
 
-`eye.py` змінювати не потрібно — `GestureMapper` підхопить новий біндінг.
-Додайте кейс у `tests/test_gestures.py` (див. `make_hand`) — і жест захищений тестом.
+You do not need to change `eye.py` — `GestureMapper` picks up the new binding.
+Add a case to `tests/test_gestures.py` (see `make_hand`) — and the gesture is covered by a test.
 
-### 2. Змінити розкладку рук
+### 2. Changing the hand layout
 
-Таблиці жестів — це дві функції в `medusa/gestures.py`:
+The gesture tables are two functions in `medusa/gestures.py`:
 
-- `command_bindings()` — ЛІВА рука (зліт, посадка, поворот);
-- `move_bindings()` — ПРАВА рука (вперед, назад, вліво, вправо).
+- `command_bindings()` — LEFT hand (takeoff, landing, turning);
+- `move_bindings()` — RIGHT hand (forward, backward, left, right).
 
-Вектори обох рук **додаються**, а `TAKEOFF`/`LAND` скидають рух. Хочете вгору/вниз — додайте в
-`move_bindings()` рядки на кшталт `Posture.THUMB: GestureBinding("CLIMB", vz=cfg.climb_speed)`
-(потрібно додати `climb_speed` у `GestureConfig`).
+The vectors of both hands are **added together**, and `TAKEOFF`/`LAND` reset movement. If you want up/down — add
+rows to `move_bindings()` such as `Posture.THUMB: GestureBinding("CLIMB", vz=cfg.climb_speed)`
+(you need to add `climb_speed` to `GestureConfig`).
 
-### 3. Реальний дрон замість симулятора
+### 3. A real drone instead of the simulator
 
-`DroneLink` — єдина точка, де вектор виходить назовні. Замініть `_send_loop`
-(або підкладіть інший об'єкт із методами `send(command)` / `hover()`) на:
+`DroneLink` is the only place where the vector leaves the program. Replace `_send_loop`
+(or substitute another object with `send(command)` / `hover()` methods) with:
 
 - **MAVLink** (`pymavlink` → `set_position_target_local_ned` / `set_attitude_target`);
 - **ROS 2** (`rclpy` → `geometry_msgs/Twist`);
-- **власний UDP/TCP** протокол ESP32-польотного контролера.
+- a **custom UDP/TCP** protocol of an ESP32 flight controller.
 
-Решта системи (CV, жести, HUD, safety-логіка) не змінюється — саме для цього протокол
-і зроблений вузьким: `[v_x, v_y, v_z, yaw_rate, action]`.
-
----
-
-## 🛡️ Безпека та обмеження
-
-- Це **симулятор**: команди в реальний дрон не йдуть, поки ви самі не заміните `DroneLink`.
-- Симулятор має власні ліміти швидкості/висоти/геозони — навіть «божевільний» вектор не вилетить за поле.
-- Біометричний профіль (`data/owner_face.npy`) — персональні дані: не комітьте його.
-- Керування жестами вимикається клавішею `G` у будь-який момент (дрон перейде в hover за 0.5 с).
-- Якщо хазяїн зникає з кадру на 8 с — автоматичний `LAND`.
+The rest of the system (CV, gestures, HUD, safety logic) does not change — that is exactly why the protocol
+is kept narrow: `[v_x, v_y, v_z, yaw_rate, action]`.
 
 ---
 
-## 📜 Ліцензія
+## 🛡️ Safety and limitations
 
-Навчальний / дослідницький проєкт. Сторонні компоненти зберігають свої ліцензії:
+- This is a **simulator**: commands do not go to a real drone until you replace `DroneLink` yourself.
+- The simulator has its own speed/altitude/geofence limits — even a "crazy" vector will not fly out of the field.
+- The biometric profile (`data/owner_face.npy`) is personal data: do not commit it.
+- Gesture control can be turned off with the `G` key at any moment (the drone switches to hover within 0.5 s).
+- If the owner disappears from the frame for 8 s — an automatic `LAND`.
+
+---
+
+## 📜 License
+
+An educational / research project. Third-party components keep their own licenses:
 Ultralytics YOLOv8 (AGPL-3.0), MediaPipe (Apache-2.0), face_recognition (MIT), Three.js (MIT).

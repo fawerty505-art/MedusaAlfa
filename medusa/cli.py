@@ -187,7 +187,7 @@ def main(argv=None, default_source: str = "webcam") -> int:
         app.run()
 
         if link.connected:
-            print(f"🔗 Відправлено векторів: {link.sent}")
+            print(f"🔗 Відправлено векторів: {link.sent_count}")
         else:
             print(f"⚠ Зв'язок із симулятором не встановлено: {link.last_error or 'немає з’єднання'}")
         return 0

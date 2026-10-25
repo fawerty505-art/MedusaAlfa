@@ -10,8 +10,8 @@ Vector format: [v_x, v_y, v_z, yaw_rate, action]
     action 0 HOVER, 1 TAKEOFF (to 2 m), 2 LAND, 3 RESET
 
 Usage:
-    python3 sim/server.py            # термінал 1 (або: python3 medusa_webcam.py)
-    python3 sim/test_sender.py       # термінал 2 (браузер на http://127.0.0.1:8000)
+    python3 sim/server.py            # terminal 1 (or: python3 medusa_webcam.py)
+    python3 sim/test_sender.py       # terminal 2 (browser at http://127.0.0.1:8000)
     python3 sim/test_sender.py --loop
 """
 
