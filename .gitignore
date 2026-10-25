@@ -21,3 +21,7 @@ web_drone_sim/
 .DS_Store
 .idea/
 *.swp
+
+# ── Секрети (API-ключі, локальний .env) ─────────────────────────────────────
+.env
+!.env.example

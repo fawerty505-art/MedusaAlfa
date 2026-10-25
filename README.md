@@ -435,6 +435,30 @@ MedusaAlfa/
 | `M` | Ручне керування з клавіатури (WASD / Space / Shift / QE) |
 | `T` / `L` / `R` | Takeoff / Land / Reset |
 
+### 🎙 Голосові команди (ElevenLabs Speech-to-Text)
+
+Push-to-talk: **зажми `SPACE`**, скажи команду, **відпусти `SPACE`**.
+
+| Слово | Дія дрона |
+|---|---|
+| **`fly`** | TAKEOFF — злетіти на 2 м |
+| **`sit`** | LAND — сісти |
+
+Розпізнавання — `POST https://api.elevenlabs.io/v1/speech-to-text` (модель `scribe_v2`, мова `en`).
+Голос має пріоритет над жестами протягом ~1 с після команди, і працює навіть з `G = OFF`.
+
+```bash
+# ключ — ТІЛЬКИ через змінну оточення (у код і git не потрапляє)
+export ELEVENLABS_API_KEY="ваш_ключ"
+python3 medusa_webcam.py                 # голос ON за замовчуванням
+python3 medusa_webcam.py --no-voice      # без голосу
+python3 medusa_webcam.py --voice-lang ""  # авто-визначення мови
+```
+
+Вимоги macOS: `brew install portaudio`; у «Системні налаштування → Конфіденційність» дозволити
+**Мікрофон** та **Моніторинг введення** (Input Monitoring) для терміналу / VS Code — інакше SPACE не
+розпізнається. SPACE ловиться глобально, тож поки він зажатий, у інших програмах він теж "натиснутий".
+
 ### Основні опції CLI
 
 ```bash
@@ -503,6 +527,7 @@ OK
 |---|---|
 | `tests/test_gestures.py` | пальці/пози, мапінг у вектор, анти-дриґання, авто-лендінг, yaw, вибір руки |
 | `tests/test_controller.py` | `GestureDroneController`: відправка, режим OFF, `toggle`, `close` |
+| `tests/test_voice.py` | голосові команди: парсинг `fly`/`sit`, WAV, мок ElevenLabs, пріоритет голосу над жестами |
 | `tests/test_drone_link.py` | `DroneLink` + реальний `sim/server.py`: доставка вектора «браузеру», телеметрія, offline-стан |
 | `tests/test_esp32_stream.py` | TCP-протокол ESP32-CAM (4-байтна довжина + JPEG) |
 

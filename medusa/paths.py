@@ -23,6 +23,7 @@ SIM_SERVER = SIM_DIR / "server.py"
 HAND_MODEL_PATH = MODELS_DIR / "hand_landmarker.task"
 YOLO_POSE_PATH = MODELS_DIR / "yolov8n-pose.pt"
 OWNER_FACE_PATH = DATA_DIR / "owner_face.npy"
+ENV_FILE_PATH = PROJECT_ROOT / ".env"          # ELEVENLABS_API_KEY (у git не потрапляє)
 
 
 def ensure_project_dirs() -> None:

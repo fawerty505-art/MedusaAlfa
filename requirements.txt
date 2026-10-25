@@ -14,3 +14,8 @@ setuptools<81               # face_recognition_models робить `import pkg_r
 
 # Симулятор дрона + канал команд
 websockets>=10.4
+
+# Голосові команди (ElevenLabs Speech-to-Text, SPACE: fly / sit)
+requests>=2.31.0
+sounddevice>=0.4.6          # запис мікрофона (потрібен PortAudio: brew install portaudio)
+pynput>=1.7.6               # глобальний hotkey SPACE (macOS: дозвіл "Input Monitoring")

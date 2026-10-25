@@ -19,6 +19,7 @@ from .esp32_stream import DEFAULT_IP, DEFAULT_PORT
 from .gestures import GestureConfig, GestureMapper, format_gesture_table
 from .paths import ensure_project_dirs
 from .sim_launcher import DEFAULT_HTTP_PORT, DEFAULT_SIM_HOST, DEFAULT_WS_PORT, SimLauncher
+from .voice import VoiceCommander, voice_banner_text
 
 GESTURE_LIST = format_gesture_table()
 
@@ -78,6 +79,12 @@ def build_parser(default_source: str = "webcam") -> argparse.ArgumentParser:
                      help="с без хазяїна до автоматичного LAND, 0 = вимкнути (default: 8)")
     gst.add_argument("--link-rate", type=float, default=20.0, help="Гц відправки векторів (default: 20)")
     gst.add_argument("--gestures-table", action="store_true", help="показати таблицю жестів і вийти")
+
+    voc = parser.add_argument_group("голосові команди (ElevenLabs)")
+    voc.add_argument("--no-voice", action="store_true",
+                     help="вимкнути голосові команди SPACE + fly/sit")
+    voc.add_argument("--voice-lang", default="en",
+                     help="мова розпізнавання ElevenLabs, ISO-639 код; порожньо = авто (default: en)")
     return parser
 
 
@@ -109,6 +116,7 @@ def _banner(args, http_url: Optional[str], ws_url: str) -> None:
     print(f"  {cmd_hand} рука (команди): ☝️ зліт  ✊ посадка  ✌️ поворот вліво  ✋ поворот вправо")
     print(f"  {move_hand} рука (рух)   : ☝️ вперед  ✌️ назад  ✊ вліво  ✋ вправо")
     print("  Клавіші: [G] жести ON/OFF  [R] реєстрація  [D] debug  [C] скинути  [Q] вихід")
+    print(f"  Голос            : {voice_banner_text(args.no_voice)}")
     print("=" * 72)
 
 
@@ -127,6 +135,7 @@ def main(argv=None, default_source: str = "webcam") -> int:
     launcher: Optional[SimLauncher] = None
     link: Optional[DroneLink] = None
     controller: Optional[GestureDroneController] = None
+    voice_cmd: Optional[VoiceCommander] = None
     app = None
 
     ws_url = args.ws_url or f"ws://{args.sim_host}:{args.ws_port}"
@@ -159,6 +168,12 @@ def main(argv=None, default_source: str = "webcam") -> int:
             enabled=not args.no_gestures,
         )
 
+        # 3b. Голос (push-to-talk SPACE: fly / sit) ----------------------------------
+        if not args.no_voice:
+            voice = VoiceCommander.from_env(controller, language_code=args.voice_lang or None)
+            voice.start()
+            voice_cmd = voice
+
         # 4. Основний цикл CV ----------------------------------------------------
         from .eye import MedusaEye  # ліниво: важкі залежності (mediapipe, ultralytics)
 
@@ -184,6 +199,8 @@ def main(argv=None, default_source: str = "webcam") -> int:
         print(f"❌ {exc}")
         return 1
     finally:
+        if voice_cmd is not None:
+            voice_cmd.stop()
         if controller is not None:
             controller.close()
         elif link is not None:
