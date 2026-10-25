@@ -665,7 +665,18 @@ class MedusaEye:
             cv2.circle(img, (x, y), r, COLOR_HAND_JOINT, -1, cv2.LINE_AA)
 
         wx, wy = pts[0]
-        draw_badge(img, f"OWNER {label.upper()}", (wx - 25, wy + 20), COLOR_HAND_JOINT)
+        draw_badge(img, label.upper(), (wx - 25, wy + 20), COLOR_HAND_JOINT)
+
+    def hand_badge_text(self, raw_label):
+        """Підпис руки: мітка з погляду користувача + роль (CMD / MOVE), якщо є контролер."""
+        if self.controller is None:
+            return f"OWNER {str(raw_label).upper()}"
+        mapper = self.controller.mapper
+        side = mapper.user_hand_label(raw_label)
+        if side not in ("Left", "Right"):
+            return f"OWNER {str(raw_label).upper()}"
+        role = "CMD" if mapper.config.side_for("command") == side else "MOVE"
+        return f"{side.upper()} HAND [{role}]"
 
     def render(self, frame, assoc, command=None):
         """Рендеринг оверлею (CV + панель керування дроном)."""
@@ -702,7 +713,7 @@ class MedusaEye:
 
         # 4. Руки хазяїна
         for hand in assoc["owner_hands"]:
-            self.draw_skeleton_hand(frame, hand["points"], hand["label"])
+            self.draw_skeleton_hand(frame, hand["points"], self.hand_badge_text(hand["label"]))
 
         # 5. Верхній HUD
         overlay = frame.copy()
@@ -734,7 +745,7 @@ class MedusaEye:
                 f"Track ID: {self.owner_track_id}",
                 f"Others: {len(assoc['others'])}",
                 f"Hands: {len(assoc['owner_hands'])}",
-                f"Gesture: {getattr(getattr(command, 'posture', None), 'value', '-')}",
+                f"Gesture: {getattr(command, 'gesture_text', '-')}",
             ]
             dy = 65
             for dl in dbg_lines:
@@ -798,7 +809,7 @@ class MedusaEye:
                         elif command.action == 0:
                             self.last_action = 0
                         if command.label != last_label:
-                            print(f"🖐  {command.posture} -> {command.label}  {command.to_text()}"
+                            print(f"🖐  {command.gesture_text} -> {command.label}  {command.to_text()}"
                                   f"  [{command.origin}]"
                                   f"  (link: {self.controller.link.status_text()})")
                             last_label = command.label

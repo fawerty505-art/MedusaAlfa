@@ -7,8 +7,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from medusa.controller import GestureDroneController  # noqa: E402
-from medusa.gestures import HOVER, LAND, GestureConfig, GestureMapper, Posture  # noqa: E402
-from tests.test_gestures import FRAME_SHAPE, hand_dict, make_hand  # noqa: E402
+from medusa.gestures import HOVER, LAND, TAKEOFF, GestureConfig, GestureMapper, Posture  # noqa: E402
+from tests.test_gestures import FRAME_SHAPE, make_hand, user_left, user_right  # noqa: E402
 
 
 class StubLink:
@@ -35,12 +35,16 @@ class StubLink:
         self.stopped = True
 
 
-def assoc(points, label="Right"):
-    """Імітує словник, який повертає MedusaEye.process_pipeline()."""
+def assoc(points, side="right"):
+    """Імітує словник, який повертає MedusaEye.process_pipeline().
+
+    side — яка рука КОРИСТУВАЧА показує жест ("left" = команди, "right" = рух).
+    """
+    hand = user_right(points) if side == "right" else user_left(points)
     return {
         "owner_face": None,
         "owner_body": {"box": (10, 10, 200, 300), "track_id": 1},
-        "owner_hands": [hand_dict(points, label)],
+        "owner_hands": [hand],
         "others": [],
     }
 
@@ -52,13 +56,17 @@ class ControllerTests(unittest.TestCase):
             self.link, GestureMapper(GestureConfig(stable_time=0.0)))
 
     def test_sends_command_for_recognised_gesture(self):
-        cmd = self.controller.update(assoc(make_hand(fingers=(1, 1, 0, 0))), FRAME_SHAPE, now=1.0)
-        self.assertEqual(cmd.posture, Posture.VICTORY)
+        cmd = self.controller.update(assoc(make_hand(fingers=(1, 0, 0, 0))), FRAME_SHAPE, now=1.0)
+        self.assertEqual(cmd.posture, Posture.POINT)
         self.assertEqual(len(self.link.sent), 1)
-        self.assertEqual(self.link.sent[0].vector[0], 1.5)
+        self.assertEqual(self.link.sent[0].vector[0], 1.5)         # права рука, 1 палець = вперед
+
+    def test_left_hand_sends_takeoff(self):
+        self.controller.update(assoc(make_hand(fingers=(1, 0, 0, 0)), side="left"), FRAME_SHAPE, now=1.0)
+        self.assertEqual(self.link.sent[0].action, TAKEOFF)
 
     def test_accepts_hands_list_directly(self):
-        cmd = self.controller.update([hand_dict(make_hand(fingers=(0, 0, 0, 0)))],
+        cmd = self.controller.update([user_left(make_hand(fingers=(0, 0, 0, 0)))],
                                      FRAME_SHAPE, now=1.0)
         self.assertEqual(cmd.action, LAND)
 
@@ -74,7 +82,7 @@ class ControllerTests(unittest.TestCase):
         self.assertTrue(self.controller.toggle())
 
     def test_toggle_off_sends_explicit_hover(self):
-        self.controller.update(assoc(make_hand(fingers=(1, 1, 0, 0))), FRAME_SHAPE, now=1.0)
+        self.controller.update(assoc(make_hand(fingers=(1, 0, 0, 0))), FRAME_SHAPE, now=1.0)
         self.controller.toggle()                       # OFF
         self.assertEqual(self.link.sent[-1].vector, (0.0, 0.0, 0.0, 0.0, HOVER))
 
@@ -96,7 +104,10 @@ class ControllerTests(unittest.TestCase):
     def test_toggle_off_resets_mapper_state(self):
         self.controller.update(assoc(make_hand(fingers=(1, 1, 1, 1))), FRAME_SHAPE, now=1.0)
         self.controller.toggle()                       # OFF
-        self.assertEqual(self.controller.mapper._active, Posture.NONE)
+        self.assertEqual(self.controller.mapper.last_command.vector, (0.0, 0.0, 0.0, 0.0, HOVER))
+        # після скидання жест знову має пройти debounce (stable_time=0 -> одразу активний)
+        cmd = self.controller.update({"owner_hands": []}, FRAME_SHAPE, now=1.05)
+        self.assertEqual(cmd.vector, (0.0, 0.0, 0.0, 0.0, HOVER))
 
     def test_no_hand_sends_hover(self):
         cmd = self.controller.update({"owner_hands": []}, FRAME_SHAPE, now=1.0)

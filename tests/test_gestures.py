@@ -21,6 +21,7 @@ from medusa.gestures import (  # noqa: E402
     classify_posture,
     count_fingers,
     fingers_up,
+    format_gesture_table,
     palm_center,
 )
 
@@ -119,223 +120,266 @@ class PostureClassificationTests(unittest.TestCase):
         self.assertAlmostEqual(cy, 300 + 5.5, delta=2.0)
 
 
-class GestureMappingTests(unittest.TestCase):
-    """Жест -> вектор [v_x, v_y, v_z, yaw_rate, action]."""
+def user_left(points):
+    """Ліва рука КОРИСТУВАЧА на недзеркальному кадрі: MediaPipe називає її 'Right'."""
+    return hand_dict(points, "Right")
+
+
+def user_right(points):
+    """Права рука КОРИСТУВАЧА на недзеркальному кадрі: MediaPipe називає її 'Left'."""
+    return hand_dict(points, "Left")
+
+
+POINT = dict(fingers=(1, 0, 0, 0))
+VICTORY = dict(fingers=(1, 1, 0, 0))
+THREE = dict(fingers=(1, 1, 1, 0))
+PALM = dict(fingers=(1, 1, 1, 1))
+FIST = dict(fingers=(0, 0, 0, 0))
+
+
+class CommandHandTests(unittest.TestCase):
+    """ЛІВА рука = команди: зліт / посадка / поворот."""
 
     def setUp(self):
         self.mapper = GestureMapper(GestureConfig(stable_time=0.0))
 
-    def command_for(self, points, label="Right", now=1.0):
-        return self.mapper.update([hand_dict(points, label)], FRAME_SHAPE, now=now)
+    def cmd(self, **hand):
+        return self.mapper.update([user_left(make_hand(**hand))], FRAME_SHAPE, now=1.0)
 
-    def test_palm_hovers(self):
-        cmd = self.command_for(make_hand(thumb=True))
-        self.assertEqual(cmd.posture, Posture.PALM)
-        self.assertEqual(cmd.action, HOVER)
-        self.assertEqual(cmd.vector[:3], (0.0, 0.0, 0.0))
+    def test_one_finger_takes_off(self):
+        cmd = self.cmd(**POINT)
+        self.assertEqual(cmd.vector, (0.0, 0.0, 0.0, 0.0, TAKEOFF))
 
     def test_fist_lands(self):
-        cmd = self.command_for(make_hand(fingers=(0, 0, 0, 0)))
-        self.assertEqual(cmd.vector[4], LAND)
+        self.assertEqual(self.cmd(**FIST).vector[4], LAND)
 
-    def test_point_takes_off(self):
-        cmd = self.command_for(make_hand(fingers=(1, 0, 0, 0)))
-        self.assertEqual(cmd.vector[4], TAKEOFF)
+    def test_fist_with_thumb_out_still_lands(self):
+        self.assertEqual(self.cmd(fingers=(0, 0, 0, 0), thumb=True).vector[4], LAND)
 
-    def test_victory_flies_forward(self):
-        cmd = self.command_for(make_hand(fingers=(1, 1, 0, 0)))
-        self.assertEqual(cmd.vector[0], 1.5)          # approach_speed за замовчуванням
-        self.assertEqual(cmd.action, HOVER)
+    def test_two_fingers_turn_left(self):
+        cmd = self.cmd(**VICTORY)
+        self.assertEqual(cmd.vector, (0.0, 0.0, 0.0, -60.0, HOVER))
 
-    def test_three_retreats(self):
-        cmd = self.command_for(make_hand(fingers=(1, 1, 1, 0)))
-        self.assertEqual(cmd.vector[0], -1.2)         # retreat_speed за замовчуванням
+    def test_palm_turns_right(self):
+        cmd = self.cmd(**PALM)
+        self.assertEqual(cmd.vector, (0.0, 0.0, 0.0, 60.0, HOVER))
+        self.assertEqual(cmd.label, "TURN RIGHT")
 
-    def test_rock_descends(self):
-        cmd = self.command_for(make_hand(fingers=(1, 0, 0, 1)))
-        self.assertEqual(cmd.vector[2], -0.9)
-
-    def test_relaxed_open_hand_never_descends(self):
-        """Регресія: відкрита рука з притиснутим великим пальцем раніше читалась як 'вниз'."""
+    def test_palm_ignores_thumb(self):
         for thumb in (False, True):
             with self.subTest(thumb=thumb):
-                cmd = self.command_for(make_hand(fingers=(1, 1, 1, 1), thumb=thumb))
-                self.assertEqual(cmd.vector[:3], (0.0, 0.0, 0.0))
-                self.assertEqual(cmd.action, HOVER)
+                self.assertEqual(self.cmd(fingers=(1, 1, 1, 1), thumb=thumb).vector[3], 60.0)
 
-    def test_thumb_climbs(self):
-        cmd = self.command_for(make_hand(fingers=(0, 0, 0, 0), thumb=True))
-        self.assertEqual(cmd.vector[2], 0.9)
+    def test_three_fingers_do_nothing(self):
+        """3 пальці більше не жест: рука нічого не додає до команди."""
+        self.assertEqual(self.cmd(**THREE).vector, (0.0, 0.0, 0.0, 0.0, HOVER))
+
+    def test_hand_position_in_frame_does_not_change_turn(self):
+        """Поворот залежить лише від жесту, а не від зсуву руки в кадрі."""
+        for cx in (80, CENTER_X, 560):
+            with self.subTest(cx=cx):
+                mapper = GestureMapper(GestureConfig(stable_time=0.0))
+                cmd = mapper.update([user_left(make_hand(cx=cx, **PALM))], FRAME_SHAPE, now=1.0)
+                self.assertEqual(cmd.vector[3], 60.0)
+
+
+class MoveHandTests(unittest.TestCase):
+    """ПРАВА рука = рух: вперед / назад / вліво / вправо."""
+
+    def setUp(self):
+        self.mapper = GestureMapper(GestureConfig(stable_time=0.0))
+
+    def cmd(self, **hand):
+        return self.mapper.update([user_right(make_hand(**hand))], FRAME_SHAPE, now=1.0)
+
+    def test_one_finger_flies_forward(self):
+        self.assertEqual(self.cmd(**POINT).vector, (1.5, 0.0, 0.0, 0.0, HOVER))
+
+    def test_two_fingers_fly_backward(self):
+        self.assertEqual(self.cmd(**VICTORY).vector, (-1.2, 0.0, 0.0, 0.0, HOVER))
+
+    def test_fist_strafes_left(self):
+        self.assertEqual(self.cmd(**FIST).vector, (0.0, -1.2, 0.0, 0.0, HOVER))
+        self.assertEqual(self.cmd(fingers=(0, 0, 0, 0), thumb=True).vector[1], -1.2)
+
+    def test_three_fingers_do_nothing(self):
+        self.assertEqual(self.cmd(**THREE).vector, (0.0, 0.0, 0.0, 0.0, HOVER))
+
+    def test_palm_strafes_right(self):
+        self.assertEqual(self.cmd(**PALM).vector, (0.0, 1.2, 0.0, 0.0, HOVER))
+
+    def test_palm_ignores_thumb(self):
+        for thumb in (False, True):
+            with self.subTest(thumb=thumb):
+                self.assertEqual(self.cmd(fingers=(1, 1, 1, 1), thumb=thumb).vector[1], 1.2)
+
+    def test_move_hand_cannot_take_off_or_land(self):
+        for hand in (POINT, FIST, PALM):
+            self.assertEqual(self.cmd(**hand).action, HOVER)
 
     def test_custom_speeds_are_used(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, approach_speed=3.0,
-                                             climb_speed=2.0))
-        cmd = mapper.update([hand_dict(make_hand(fingers=(1, 1, 0, 0)))], FRAME_SHAPE, now=1.0)
+        mapper = GestureMapper(GestureConfig(stable_time=0.0, forward_speed=3.0, strafe_speed=0.5))
+        cmd = mapper.update([user_right(make_hand(**POINT))], FRAME_SHAPE, now=1.0)
         self.assertEqual(cmd.vector[0], 3.0)
-        cmd = mapper.update([hand_dict(make_hand(fingers=(0, 0, 0, 0), thumb=True))],
-                            FRAME_SHAPE, now=2.0)
-        self.assertEqual(cmd.vector[2], 2.0)
-
-    def test_payload_format(self):
-        cmd = self.command_for(make_hand(fingers=(1, 1, 0, 0)))
-        payload = cmd.to_payload()
-        self.assertEqual(len(payload), 5)
-        self.assertIsInstance(payload[4], int)
-        self.assertTrue(all(isinstance(v, (int, float)) for v in payload))
-        self.assertEqual(cmd.to_text().count(","), 4)
+        cmd = mapper.update([user_right(make_hand(**PALM))], FRAME_SHAPE, now=2.0)
+        self.assertEqual(cmd.vector[1], 0.5)
 
 
-class GestureStabilityTests(unittest.TestCase):
-    def test_gesture_needs_to_be_stable(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.20))
-        hand = [hand_dict(make_hand(fingers=(1, 1, 0, 0)))]
+class TwoHandCombinationTests(unittest.TestCase):
+    def setUp(self):
+        self.mapper = GestureMapper(GestureConfig(stable_time=0.0))
 
-        first = mapper.update(hand, FRAME_SHAPE, now=10.0)
-        self.assertEqual(first.label, "HOLD (no gesture)")
+    def two(self, left, right, now=1.0):
+        hands = [user_left(make_hand(cx=490, **left)), user_right(make_hand(cx=150, **right))]
+        return self.mapper.update(hands, FRAME_SHAPE, now=now)
 
-        still = mapper.update(hand, FRAME_SHAPE, now=10.10)
-        self.assertEqual(still.label, "HOLD (no gesture)")
+    def test_forward_while_turning_right(self):
+        cmd = self.two(left=PALM, right=POINT)
+        self.assertEqual(cmd.vector, (1.5, 0.0, 0.0, 60.0, HOVER))
+        self.assertIn("FORWARD", cmd.label)
+        self.assertIn("TURN RIGHT", cmd.label)
 
-        settled = mapper.update(hand, FRAME_SHAPE, now=10.21)
-        self.assertEqual(settled.label, "FORWARD / APPROACH")
-        self.assertEqual(settled.vector[0], 1.5)
+    def test_strafe_left_while_turning_left(self):
+        cmd = self.two(left=VICTORY, right=FIST)
+        self.assertEqual(cmd.vector, (0.0, -1.2, 0.0, -60.0, HOVER))
 
-    def test_previous_gesture_kept_while_candidate_not_stable(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.20))
-        pose_a = [hand_dict(make_hand(fingers=(1, 1, 1, 1)))]     # PALM -> hover
-        pose_b = [hand_dict(make_hand(fingers=(0, 0, 0, 0)))]     # FIST -> land
+    def test_strafe_right_while_turning_right(self):
+        cmd = self.two(left=PALM, right=PALM)
+        self.assertEqual(cmd.vector, (0.0, 1.2, 0.0, 60.0, HOVER))
 
-        mapper.update(pose_a, FRAME_SHAPE, now=0.0)
-        active = mapper.update(pose_a, FRAME_SHAPE, now=0.25)
-        self.assertEqual(active.posture, Posture.PALM)
+    def test_backward_while_turning_left(self):
+        cmd = self.two(left=VICTORY, right=VICTORY)
+        self.assertEqual(cmd.vector, (-1.2, 0.0, 0.0, -60.0, HOVER))
 
-        flicker = mapper.update(pose_b, FRAME_SHAPE, now=0.30)
-        self.assertEqual(flicker.posture, Posture.PALM)           # ще не стабільно
-        settled = mapper.update(pose_b, FRAME_SHAPE, now=0.55)
-        self.assertEqual(settled.vector[4], LAND)
+    def test_takeoff_overrides_movement(self):
+        cmd = self.two(left=POINT, right=POINT)
+        self.assertEqual(cmd.vector, (0.0, 0.0, 0.0, 0.0, TAKEOFF))
 
+    def test_land_overrides_movement(self):
+        cmd = self.two(left=FIST, right=PALM)
+        self.assertEqual(cmd.vector, (0.0, 0.0, 0.0, 0.0, LAND))
+
+    def test_order_of_hands_in_list_does_not_matter(self):
+        hands = [user_right(make_hand(cx=150, **POINT)), user_left(make_hand(cx=490, **PALM))]
+        cmd = self.mapper.update(hands, FRAME_SHAPE, now=1.0)
+        self.assertEqual(cmd.vector, (1.5, 0.0, 0.0, 60.0, HOVER))
+
+    def test_detail_shows_both_hands(self):
+        cmd = self.two(left=POINT, right=VICTORY)
+        self.assertEqual(cmd.detail, "L:POINT R:VICTORY")
+        self.assertEqual(cmd.gesture_text, "L:POINT R:VICTORY")
+
+
+class HandAssignmentTests(unittest.TestCase):
+    """Яка рука ліва/права: мітки MediaPipe, позиція в кадрі, mirrored, swap."""
+
+    def test_mirrored_frame_keeps_mediapipe_labels(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.0, image_mirrored=True))
+        cmd = mapper.update([hand_dict(make_hand(**POINT), "Left")], FRAME_SHAPE, now=1.0)
+        self.assertEqual(cmd.vector[4], TAKEOFF)           # 'Left' на дзеркальному кадрі = ліва
+
+    def test_swap_hands_exchanges_roles(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.0, swap_hands=True))
+        cmd = mapper.update([user_right(make_hand(**POINT))], FRAME_SHAPE, now=1.0)
+        self.assertEqual(cmd.vector[4], TAKEOFF)           # права = команди
+        cmd = mapper.update([user_left(make_hand(**POINT))], FRAME_SHAPE, now=2.0)
+        self.assertEqual(cmd.vector, (1.5, 0.0, 0.0, 0.0, HOVER))   # ліва = рух
+
+    def test_same_label_on_both_hands_uses_position(self):
+        """MediaPipe іноді дає обом рукам однакову мітку: тоді рішає позиція в кадрі."""
+        mapper = GestureMapper(GestureConfig(stable_time=0.0))
+        # недзеркальний кадр: ліва рука користувача — праворуч у кадрі
+        hands = [
+            hand_dict(make_hand(cx=150, **POINT), "Left"),      # зліва в кадрі = ПРАВА користувача -> вперед
+            hand_dict(make_hand(cx=490, **PALM), "Left"),       # справа в кадрі = ЛІВА користувача -> поворот вправо
+        ]
+        cmd = mapper.update(hands, FRAME_SHAPE, now=1.0)
+        self.assertEqual(cmd.vector, (1.5, 0.0, 0.0, 60.0, HOVER))
+
+    def test_unlabelled_single_hand_uses_position(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.0))
+        cmd = mapper.update([hand_dict(make_hand(cx=500, **POINT), "Hand")], FRAME_SHAPE, now=1.0)
+        self.assertEqual(cmd.vector[4], TAKEOFF)           # справа в кадрі = ліва користувача
+
+    def test_unlabelled_hand_mirrored_frame(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.0, image_mirrored=True))
+        cmd = mapper.update([hand_dict(make_hand(cx=100, **POINT), "Hand")], FRAME_SHAPE, now=1.0)
+        self.assertEqual(cmd.vector[4], TAKEOFF)           # зліва в кадрі = ліва користувача
+
+    def test_hand_labels_helper(self):
+        mapper = GestureMapper(GestureConfig())
+        self.assertEqual(mapper.user_hand_label("Left"), "Right")
+        self.assertEqual(mapper.user_hand_label("Right"), "Left")
+        self.assertEqual(mapper.user_hand_label("Hand"), "Hand")
+
+
+class DebounceTests(unittest.TestCase):
+    def test_gesture_must_be_stable(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.2))
+        hands = [user_left(make_hand(**POINT))]
+        self.assertEqual(mapper.update(hands, FRAME_SHAPE, now=1.00).vector[4], HOVER)
+        self.assertEqual(mapper.update(hands, FRAME_SHAPE, now=1.10).vector[4], HOVER)
+        self.assertEqual(mapper.update(hands, FRAME_SHAPE, now=1.25).vector[4], TAKEOFF)
+
+    def test_each_hand_is_debounced_independently(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.2))
+        left = user_left(make_hand(cx=490, **POINT))
+        right = user_right(make_hand(cx=150, **POINT))
+        mapper.update([right], FRAME_SHAPE, now=1.0)
+        mapper.update([right], FRAME_SHAPE, now=1.3)               # права вже стабільна
+        cmd = mapper.update([left, right], FRAME_SHAPE, now=1.35)  # ліва щойно з'явилась
+        self.assertEqual(cmd.vector, (1.5, 0.0, 0.0, 0.0, HOVER))  # TAKEOFF ще не активний
+        cmd = mapper.update([left, right], FRAME_SHAPE, now=1.6)
+        self.assertEqual(cmd.vector[4], TAKEOFF)
+
+    def test_flicker_does_not_change_command(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.2))
+        hands = [user_right(make_hand(**POINT))]
+        mapper.update(hands, FRAME_SHAPE, now=1.0)
+        mapper.update(hands, FRAME_SHAPE, now=1.3)
+        mapper.update([user_right(make_hand(**PALM))], FRAME_SHAPE, now=1.35)   # 1 кадр "не те"
+        cmd = mapper.update(hands, FRAME_SHAPE, now=1.40)
+        self.assertEqual(cmd.vector[0], 1.5)
 
 
 class HandLossTests(unittest.TestCase):
-    def test_no_hand_sends_hover(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0))
-        cmd = mapper.update([], FRAME_SHAPE, now=1.0)
-        self.assertEqual(cmd.vector, (0.0, 0.0, 0.0, 0.0, HOVER))
-        self.assertEqual(cmd.origin, "idle")
-
-    def test_auto_land_after_owner_disappears(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, auto_land_after=2.0))
-        mapper.update([hand_dict(make_hand())], FRAME_SHAPE, now=0.0)
-
-        short_gap = mapper.update([], FRAME_SHAPE, now=1.0)
-        self.assertEqual(short_gap.vector[4], HOVER)
-        self.assertEqual(short_gap.origin, "no-hand")
-
-        landed = mapper.update([], FRAME_SHAPE, now=2.5)
-        self.assertEqual(landed.vector[4], LAND)
-        self.assertEqual(landed.origin, "auto-land")
-
-        # хазяїн повернувся -> авто-лендінг скасовується
-        back = mapper.update([hand_dict(make_hand())], FRAME_SHAPE, now=3.0)
-        self.assertEqual(back.vector[4], HOVER)
-
-    def test_owner_visible_without_hand_never_auto_lands(self):
-        """Регресія: хазяїн стоїть у кадрі з опущеними руками -> hover, а не посадка."""
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, auto_land_after=2.0))
-        mapper.update([hand_dict(make_hand())], FRAME_SHAPE, now=0.0, owner_present=True)
-        cmd = mapper.update([], FRAME_SHAPE, now=60.0, owner_present=True)
-        self.assertEqual(cmd.vector[4], HOVER)
-        self.assertEqual(cmd.origin, "no-hand")
-
-    def test_owner_gone_triggers_auto_land_even_without_prior_hand(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, auto_land_after=2.0))
-        mapper.update([], FRAME_SHAPE, now=0.0, owner_present=True)
-        cmd = mapper.update([], FRAME_SHAPE, now=3.0, owner_present=False)
-        self.assertEqual(cmd.vector[4], LAND)
-
-    def test_short_hand_dropout_keeps_gesture(self):
-        """hand_lost_timeout: один кадр без детекції не перериває маневр."""
+    def test_short_dropout_keeps_command(self):
         mapper = GestureMapper(GestureConfig(stable_time=0.0, hand_lost_timeout=0.35))
-        fwd = mapper.update([hand_dict(make_hand(fingers=(1, 1, 0, 0)))], FRAME_SHAPE, now=0.0,
-                            owner_present=True)
-        blink = mapper.update([], FRAME_SHAPE, now=0.10, owner_present=True)
-        self.assertEqual(blink.vector, fwd.vector)
-        gone = mapper.update([], FRAME_SHAPE, now=0.60, owner_present=True)
-        self.assertEqual(gone.vector, (0.0, 0.0, 0.0, 0.0, HOVER))
+        mapper.update([user_right(make_hand(**POINT))], FRAME_SHAPE, now=1.0)
+        cmd = mapper.update([], FRAME_SHAPE, now=1.2, owner_present=True)
+        self.assertEqual(cmd.vector[0], 1.5)
+
+    def test_long_dropout_hovers(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.0, hand_lost_timeout=0.35))
+        mapper.update([user_right(make_hand(**POINT))], FRAME_SHAPE, now=1.0)
+        cmd = mapper.update([], FRAME_SHAPE, now=1.6, owner_present=True)
+        self.assertEqual(cmd.vector, (0.0, 0.0, 0.0, 0.0, HOVER))
+
+    def test_one_hand_lost_other_keeps_working(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.0, hand_lost_timeout=0.35))
+        both = [user_left(make_hand(cx=490, **PALM)), user_right(make_hand(cx=150, **POINT))]
+        mapper.update(both, FRAME_SHAPE, now=1.0)
+        cmd = mapper.update([user_right(make_hand(cx=150, **POINT))], FRAME_SHAPE, now=1.8)
+        self.assertEqual(cmd.vector, (1.5, 0.0, 0.0, 0.0, HOVER))     # поворот зник, рух лишився
+
+    def test_owner_visible_without_hands_does_not_land(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.0, auto_land_after=1.0))
+        mapper.update([user_right(make_hand(**PALM))], FRAME_SHAPE, now=0.0)
+        cmd = mapper.update([], FRAME_SHAPE, now=30.0, owner_present=True)
+        self.assertEqual(cmd.vector[4], HOVER)
+
+    def test_owner_lost_lands(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.0, auto_land_after=1.0))
+        mapper.update([user_right(make_hand(**PALM))], FRAME_SHAPE, now=0.0)
+        cmd = mapper.update([], FRAME_SHAPE, now=5.0, owner_present=False)
+        self.assertEqual(cmd.vector[4], LAND)
+        self.assertEqual(cmd.origin, "auto-land")
 
     def test_auto_land_can_be_disabled(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, auto_land_after=0.0))
-        mapper.update([hand_dict(make_hand())], FRAME_SHAPE, now=0.0)
-        cmd = mapper.update([], FRAME_SHAPE, now=100.0)
+        mapper = GestureMapper(GestureConfig(stable_time=0.0, auto_land_after=0))
+        mapper.update([user_right(make_hand(**PALM))], FRAME_SHAPE, now=0.0)
+        cmd = mapper.update([], FRAME_SHAPE, now=500.0, owner_present=False)
         self.assertEqual(cmd.vector[4], HOVER)
-
-
-class YawFromHandTests(unittest.TestCase):
-    def test_user_right_turns_right_on_non_mirrored_frame(self):
-        """Недзеркальна камера: рука праворуч від КОРИСТУВАЧА видна ЛІВОРУЧ у кадрі."""
-        mapper = GestureMapper(GestureConfig(stable_time=0.0))
-        cmd = mapper.update([hand_dict(make_hand(cx=CENTER_X - 200))], FRAME_SHAPE, now=1.0)
-        self.assertGreater(cmd.vector[3], 5.0)       # yaw_rate > 0 = вправо
-
-    def test_user_left_turns_left_on_non_mirrored_frame(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0))
-        cmd = mapper.update([hand_dict(make_hand(cx=CENTER_X + 200))], FRAME_SHAPE, now=1.0)
-        self.assertLess(cmd.vector[3], -5.0)
-
-    def test_mirrored_frame_uses_image_side_directly(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, image_mirrored=True))
-        cmd = mapper.update([hand_dict(make_hand(cx=CENTER_X + 200))], FRAME_SHAPE, now=1.0)
-        self.assertGreater(cmd.vector[3], 5.0)
-
-    def test_hand_in_the_centre_does_not_turn(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0))
-        cmd = mapper.update([hand_dict(make_hand(cx=CENTER_X - 4))], FRAME_SHAPE, now=1.0)
-        self.assertEqual(cmd.vector[3], 0.0)
-
-    def test_yaw_disabled(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, yaw_from_hand=False))
-        cmd = mapper.update([hand_dict(make_hand(cx=CENTER_X + 250))], FRAME_SHAPE, now=1.0)
-        self.assertEqual(cmd.vector[3], 0.0)
-
-    def test_action_gestures_never_yaw(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0))
-        cmd = mapper.update([hand_dict(make_hand(fingers=(0, 0, 0, 0), cx=CENTER_X + 250))],
-                            FRAME_SHAPE, now=1.0)
-        self.assertEqual(cmd.vector[4], LAND)
-        self.assertEqual(cmd.vector[3], 0.0)
-
-    def test_yaw_invert(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, yaw_invert=True))
-        cmd = mapper.update([hand_dict(make_hand(cx=CENTER_X + 200))], FRAME_SHAPE, now=1.0)
-        self.assertGreater(cmd.vector[3], 5.0)
-
-
-class MultiHandTests(unittest.TestCase):
-    """MediaPipe на недзеркальному кадрі інвертує мітки: його 'Left' = права рука користувача."""
-
-    def test_prefers_users_right_hand_on_non_mirrored_frame(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, prefer_hand="Right"))
-        hands = [
-            hand_dict(make_hand(fingers=(1, 1, 0, 0)), label="Right"),   # = ліва користувача, V
-            hand_dict(make_hand(), label="Left"),                        # = права користувача, PALM
-        ]
-        cmd = mapper.update(hands, FRAME_SHAPE, now=1.0)
-        self.assertEqual(cmd.posture, Posture.PALM)
-
-    def test_mirrored_frame_keeps_mediapipe_labels(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, prefer_hand="Right", image_mirrored=True))
-        hands = [
-            hand_dict(make_hand(fingers=(1, 1, 0, 0)), label="Left"),
-            hand_dict(make_hand(), label="Right"),
-        ]
-        cmd = mapper.update(hands, FRAME_SHAPE, now=1.0)
-        self.assertEqual(cmd.posture, Posture.PALM)
-
-    def test_falls_back_to_any_hand(self):
-        mapper = GestureMapper(GestureConfig(stable_time=0.0, prefer_hand="Right"))
-        hands = [hand_dict(make_hand(fingers=(1, 0, 0, 0)), label="Right")]   # лише ліва користувача
-        cmd = mapper.update(hands, FRAME_SHAPE, now=1.0)
-        self.assertEqual(cmd.vector[4], TAKEOFF)
 
 
 class CommandTests(unittest.TestCase):
@@ -345,14 +389,38 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(cmd.action_name, "HOVER")
         self.assertEqual(cmd.origin, "gesture")
 
+    def test_payload_format(self):
+        mapper = GestureMapper(GestureConfig(stable_time=0.0))
+        cmd = mapper.update([user_right(make_hand(**POINT))], FRAME_SHAPE, now=1.0)
+        payload = cmd.to_payload()
+        self.assertEqual(len(payload), 5)
+        self.assertIsInstance(payload[4], int)
+        self.assertTrue(all(isinstance(v, (int, float)) for v in payload))
+
     def test_with_origin_is_a_copy(self):
-        cmd = DroneCommand((1.0, 0.0, 0.0, 0.0, HOVER), Posture.VICTORY, "FORWARD")
+        cmd = DroneCommand((1.0, 0.0, 0.0, 0.0, HOVER), Posture.POINT, "FORWARD", detail="L:- R:POINT")
         disabled = cmd.with_origin("disabled")
         self.assertEqual(disabled.origin, "disabled")
         self.assertEqual(cmd.origin, "gesture")
         self.assertEqual(disabled.vector, cmd.vector)
+        self.assertEqual(disabled.detail, cmd.detail)
+
+
+class GestureTableTests(unittest.TestCase):
+    def test_table_lists_both_hands(self):
+        table = format_gesture_table()
+        self.assertIn("ЛІВА", table)
+        self.assertIn("ПРАВА", table)
+        for label in ("TAKEOFF", "LAND", "TURN LEFT", "TURN RIGHT",
+                      "FORWARD", "BACKWARD", "LEFT", "RIGHT"):
+            self.assertIn(label, table)
+        self.assertEqual(len(table.splitlines()), 8)       # 4 жести на кожну руку
+
+    def test_table_follows_swap_hands(self):
+        first_line = format_gesture_table(GestureConfig(swap_hands=True)).splitlines()[0]
+        self.assertIn("ПРАВА", first_line)
+        self.assertIn("TAKEOFF", first_line)
 
 
 if __name__ == "__main__":
     unittest.main()
-

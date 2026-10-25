@@ -2,7 +2,7 @@
 """
 =============================================================================
   MedusaAlfa — Gesture Engine
-  Жести рук (MediaPipe, 21 точка)  ->  вектор команд дрона
+  Жести ДВОХ рук (MediaPipe, 21 точка)  ->  вектор команд дрона
 =============================================================================
 
 Симулятор (sim/app.js) очікує рівно такий вектор:
@@ -15,41 +15,47 @@
     yaw_rate  °/s   додатне = поворот за годинниковою стрілкою (вправо)
     action    0 HOVER | 1 TAKEOFF (на 2 м) | 2 LAND | 3 RESET
 
-Таблиця жестів (розпізнається кількість розігнутих пальців — це стійко
-до повороту руки, освітлення та відстані):
+Керування двома руками (розпізнається кількість розігнутих пальців — це
+стійко до повороту руки, освітлення та відстані):
 
-    ┌───────────────────────────────┬──────────────┬───────────────────────────┐
-    │ Жест                          │ Вектор       │ Дія дрона                 │
-    ├───────────────────────────────┼──────────────┼───────────────────────────┤
-    │ ✋ Долоня (4 пальці, великий   │ [0,0,0,0,0]  │ HOVER — тримати позицію   │
-    │    не враховується)           │              │                           │
-    │ ✊ Кулак (0)                   │ [0,0,0,0,2]  │ LAND — сісти              │
-    │ ☝️ Вказівний (1)               │ [0,0,0,0,1]  │ TAKEOFF — злетіти на 2 м  │
-    │ ✌️ V / два (2)                 │ [+vx,0,0,0,0]│ FORWARD — наблизитися     │
-    │ 🤟 Три (3)                     │ [-vx,0,0,0,0]│ BACKWARD — відлетіти назад│
-    │ 👍 Тільки великий палець       │ [0,0,+vz,0,0]│ CLIMB — вище              │
-    │ 🤘 Вказівний + мізинець        │ [0,0,-vz,0,0]│ DESCEND — нижче           │
-    └───────────────────────────────┴──────────────┴───────────────────────────┘
+    ЛІВА рука — КОМАНДИ (зліт / посадка / поворот), 4 жести
+    ┌──────────────────────┬────────────────────────────┐
+    │ ☝️ 1 палець           │ TAKEOFF — злетіти на 2 м    │
+    │ ✊ кулак              │ LAND — сісти                │
+    │ ✌️ 2 пальці           │ TURN LEFT  — поворот вліво  │
+    │ ✋ долоня             │ TURN RIGHT — поворот вправо │
+    └──────────────────────┴────────────────────────────┘
 
-Чому долоня не залежить від великого пальця: розслаблена відкрита рука дуже
-часто тримає великий палець біля долоні. Якби від нього залежав вибір між
-"hover" та "вниз", природний жест "стоп" опускав би дрон. Тому "вниз" —
-це свідомий жест 🤘, який випадково не зробиш.
+    ПРАВА рука — РУХ (вперед / назад / вліво / вправо), 4 жести
+    ┌──────────────────────┬────────────────────────────┐
+    │ ☝️ 1 палець           │ FORWARD  — вперед           │
+    │ ✌️ 2 пальці           │ BACKWARD — назад            │
+    │ ✊ кулак              │ LEFT     — вліво            │
+    │ ✋ долоня             │ RIGHT    — вправо           │
+    └──────────────────────┴────────────────────────────┘
 
-Додатково (безперервне керування): якщо рука зміщена ліворуч/праворуч від
-центру кадру, додається yaw_rate — дрон повертається в бік руки КОРИСТУВАЧА.
-Для недзеркальної камери (за замовчуванням) це враховано: права рука, що
-зміщується вправо від користувача, з'являється ЛІВОРУЧ на кадрі.
-Це працює для "польотних" жестів і не впливає на кулак/вказівний.
+Інші пози (3 пальці, "рок" тощо) нічого не роблять. Якщо рука не в кадрі або
+показує невідомий жест — вона просто нічого не додає до команди.
+
+Жести обох рук комбінуються: права "вперед" + ліва "поворот вправо" = політ
+дугою. Дії TAKEOFF/LAND мають пріоритет — під час них рух ігнорується.
+Великий палець не враховується: кулак лишається кулаком, навіть якщо великий
+палець стирчить, а долоня — долонею, навіть якщо він притиснутий.
+
+Яка рука ліва/права — з погляду КОРИСТУВАЧА. MediaPipe вважає кадр
+дзеркальним, а наші джерела (webcam без flip, ESP32) — недзеркальні, тому
+мітки автоматично міняються місцями (image_mirrored=False). Якщо обидві
+руки отримали однакову мітку, сторона визначається за позицією в кадрі.
+Для лівші: swap_hands=True (CLI: --swap-hands) міняє ролі рук місцями.
 
 Захист від випадкових команд:
-    * жест має протриматись `stable_time` секунд (анти-дриґання);
+    * жест кожної руки має протриматись `stable_time` секунд (анти-дриґання);
     * короткі пропадання руки (< `hand_lost_timeout`) ігноруються;
     * команда надсилається з частотою 20 Гц (симулятор має власний
       0.5-секундний safety-timeout -> автоперехід у hover);
     * якщо ХАЗЯЇН (не рука!) зник з кадру довше `auto_land_after` секунд —
       надсилається LAND (auto_land_after=0 вимикає). Якщо хазяїн у кадрі,
-      а руки не видно — дрон просто висить у hover.
+      а рук не видно — дрон просто висить у hover.
 
 Модуль НЕ залежить від OpenCV/MediaPipe/numpy — тому його легко тестувати
 (див. tests/test_gestures.py): на вхід подаються 21 точка кисті.
@@ -59,9 +65,9 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Індекси точок MediaPipe Hands (21 landmark)
@@ -88,6 +94,11 @@ PALM_POINTS = (INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP)
 HOVER, TAKEOFF, LAND, RESET = 0, 1, 2, 3
 ACTION_NAMES = {HOVER: "HOVER", TAKEOFF: "TAKEOFF", LAND: "LAND", RESET: "RESET"}
 
+#: Ролі рук
+ROLE_COMMAND = "command"   # зліт / посадка / поворот        (за замовчуванням ЛІВА рука)
+ROLE_MOVE = "move"         # вперед / назад / вліво / вправо (за замовчуванням ПРАВА рука)
+ROLES = (ROLE_COMMAND, ROLE_MOVE)
+
 Point = Tuple[float, float]
 
 
@@ -105,6 +116,7 @@ class Posture(str, Enum):
 
     def __str__(self) -> str:  # зручно друкувати в HUD
         return self.value.upper()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Геометрія кисті
@@ -207,7 +219,8 @@ class DroneCommand:
     vector: Tuple[float, float, float, float, int]
     posture: Posture = Posture.NONE
     label: str = "HOLD"
-    origin: str = "gesture"          # gesture | no-hand | auto-land | disabled
+    origin: str = "gesture"          # gesture | no-hand | idle | auto-land | disabled
+    detail: str = ""                 # що показує кожна рука, напр. "L:POINT R:VICTORY"
 
     @property
     def action(self) -> int:
@@ -216,6 +229,11 @@ class DroneCommand:
     @property
     def action_name(self) -> str:
         return ACTION_NAMES.get(self.action, str(self.action))
+
+    @property
+    def gesture_text(self) -> str:
+        """Короткий опис жестів обох рук для HUD/логів."""
+        return self.detail or str(self.posture)
 
     def to_payload(self) -> List[float]:
         """JSON-сумісний список для WebSocket (action завжди ціле)."""
@@ -228,45 +246,45 @@ class DroneCommand:
         return f"[{vx:+.2f}, {vy:+.2f}, {vz:+.2f}, {yaw:+.1f}, {action}]"
 
     def with_origin(self, origin: str) -> "DroneCommand":
-        return DroneCommand(self.vector, self.posture, self.label, origin)
+        return DroneCommand(self.vector, self.posture, self.label, origin, self.detail)
 
 
 HOVER_COMMAND = DroneCommand((0.0, 0.0, 0.0, 0.0, HOVER), Posture.NONE, "HOLD")
 
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Конфігурація та таблиця жестів
+# Конфігурація та таблиці жестів
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class GestureConfig:
     """Налаштування жестів (усі швидкості — у тих самих одиницях, що й вектор)."""
 
-    approach_speed: float = 1.5      # м/с вперед (жест V)
-    retreat_speed: float = 1.2       # м/с назад (жест "три")
-    climb_speed: float = 0.9         # м/с вгору (жест "чотири")
-    descend_speed: float = 0.9       # м/с вниз  (жест "великий палець")
+    forward_speed: float = 1.5       # м/с вперед
+    backward_speed: float = 1.2      # м/с назад
+    strafe_speed: float = 1.2        # м/с вліво / вправо
+    yaw_speed: float = 60.0          # °/с поворот вліво / вправо
 
-    yaw_from_hand: bool = True       # зміщення руки в кадрі -> yaw_rate
-    yaw_gain: float = 55.0           # °/с на максимальному відхиленні
-    yaw_deadzone: float = 0.22       # |offset| < deadzone -> без повороту
-    yaw_invert: bool = False         # поміняти напрямок повороту
     image_mirrored: bool = False     # True, якщо кадр дзеркальний (selfie); webcam/ESP32 -> False
+    swap_hands: bool = False         # True: права рука = команди, ліва = рух (для лівші)
 
     stable_time: float = 0.18        # с, скільки жест має протриматись
     hand_lost_timeout: float = 0.35  # с, ігнорування "блимнув" руки
     auto_land_after: float = 8.0     # с без хазяїна -> LAND (0 = вимкнути)
-    prefer_hand: str = "Right"       # "Right" | "Left" | "" (будь-яка)
 
     def __post_init__(self) -> None:
-        if self.stable_time < 0:
-            self.stable_time = 0.0
-        if self.hand_lost_timeout < 0:
-            self.hand_lost_timeout = 0.0
-        if self.auto_land_after < 0:
-            self.auto_land_after = 0.0
-        self.yaw_deadzone = min(max(self.yaw_deadzone, 0.0), 0.95)
-        self.yaw_gain = max(self.yaw_gain, 0.0)
+        self.stable_time = max(self.stable_time, 0.0)
+        self.hand_lost_timeout = max(self.hand_lost_timeout, 0.0)
+        self.auto_land_after = max(self.auto_land_after, 0.0)
+        self.forward_speed = max(self.forward_speed, 0.0)
+        self.backward_speed = max(self.backward_speed, 0.0)
+        self.strafe_speed = max(self.strafe_speed, 0.0)
+        self.yaw_speed = max(self.yaw_speed, 0.0)
+
+    def side_for(self, role: str) -> str:
+        """Яка рука користувача ("Left"/"Right") виконує роль."""
+        command_side = "Right" if self.swap_hands else "Left"
+        move_side = "Left" if self.swap_hands else "Right"
+        return command_side if role == ROLE_COMMAND else move_side
 
 
 @dataclass(frozen=True)
@@ -277,45 +295,93 @@ class GestureBinding:
     vx: float = 0.0
     vy: float = 0.0
     vz: float = 0.0
-    yaw: float = 0.0            # фіксований yaw_rate жесту (°/с), додається до yaw від руки
+    yaw: float = 0.0            # yaw_rate жесту (°/с), додатне = вправо
     action: int = HOVER
-    allow_yaw: bool = True      # чи додавати поворот від зміщення руки в кадрі
 
-    def as_command(self, posture: Posture, yaw_rate: float = 0.0) -> DroneCommand:
-        yaw = self.yaw + (yaw_rate if self.allow_yaw else 0.0)
+    def as_command(self, posture: Posture) -> DroneCommand:
         return DroneCommand(
             (round(float(self.vx), 4), round(float(self.vy), 4), round(float(self.vz), 4),
-             round(float(yaw), 4), int(self.action)),
+             round(float(self.yaw), 4), int(self.action)),
             posture,
             self.label,
         )
 
 
-def default_bindings(config: Optional[GestureConfig] = None) -> Dict[Posture, GestureBinding]:
-    """Стандартна таблиця жестів -> команди (її і можна перевизначати)."""
+Bindings = Dict[Posture, GestureBinding]
+
+
+def command_bindings(config: Optional[GestureConfig] = None) -> Bindings:
+    """Жести руки-КОМАНД (за замовчуванням ліва): зліт, посадка, поворот."""
     cfg = config or GestureConfig()
+    land = GestureBinding("LAND", action=LAND)
     return {
-        Posture.PALM: GestureBinding("HOVER", action=HOVER),
-        Posture.FIST: GestureBinding("LAND", action=LAND, allow_yaw=False),
-        Posture.POINT: GestureBinding("TAKEOFF", action=TAKEOFF, allow_yaw=False),
-        Posture.VICTORY: GestureBinding("FORWARD / APPROACH", vx=cfg.approach_speed),
-        Posture.THREE: GestureBinding("BACKWARD / RETREAT", vx=-cfg.retreat_speed),
-        Posture.THUMB: GestureBinding("CLIMB UP", vz=cfg.climb_speed),
-        Posture.ROCK: GestureBinding("DESCEND DOWN", vz=-cfg.descend_speed),
+        Posture.POINT: GestureBinding("TAKEOFF", action=TAKEOFF),
+        Posture.FIST: land,
+        Posture.THUMB: land,        # кулак зі стирчачим великим пальцем — теж кулак
+        Posture.VICTORY: GestureBinding("TURN LEFT", yaw=-cfg.yaw_speed),
+        Posture.PALM: GestureBinding("TURN RIGHT", yaw=cfg.yaw_speed),
     }
 
 
-#: Порядок для HUD/README
+def move_bindings(config: Optional[GestureConfig] = None) -> Bindings:
+    """Жести руки-РУХУ (за замовчуванням права): вперед, назад, вліво, вправо."""
+    cfg = config or GestureConfig()
+    left = GestureBinding("LEFT", vy=-cfg.strafe_speed)
+    return {
+        Posture.POINT: GestureBinding("FORWARD", vx=cfg.forward_speed),
+        Posture.VICTORY: GestureBinding("BACKWARD", vx=-cfg.backward_speed),
+        Posture.FIST: left,
+        Posture.THUMB: left,        # кулак зі стирчачим великим пальцем — теж кулак
+        Posture.PALM: GestureBinding("RIGHT", vy=cfg.strafe_speed),
+    }
+
+
+#: Порядок для HUD/README: (роль, поза, як це виглядає)
 GESTURE_HELP = (
-    (Posture.PALM, "Долоня (4 пальці)", "HOVER — тримати позицію"),
-    (Posture.FIST, "Кулак (0 пальців)", "LAND — сісти"),
-    (Posture.POINT, "Один палець (вказівний)", "TAKEOFF — злетіти на 2 м"),
-    (Posture.VICTORY, "Два пальці (V)", "FORWARD — наблизитися до вас"),
-    (Posture.THREE, "Три пальці", "BACKWARD — відлетіти назад"),
-    (Posture.THUMB, "Тільки великий палець (👍)", "CLIMB — піднятися вище"),
-    (Posture.ROCK, "Вказівний + мізинець (🤘)", "DESCEND — опуститися нижче"),
+    (ROLE_COMMAND, Posture.POINT, "☝️ 1 палець"),
+    (ROLE_COMMAND, Posture.FIST, "✊ кулак"),
+    (ROLE_COMMAND, Posture.VICTORY, "✌️ 2 пальці"),
+    (ROLE_COMMAND, Posture.PALM, "✋ долоня"),
+    (ROLE_MOVE, Posture.POINT, "☝️ 1 палець"),
+    (ROLE_MOVE, Posture.VICTORY, "✌️ 2 пальці"),
+    (ROLE_MOVE, Posture.FIST, "✊ кулак"),
+    (ROLE_MOVE, Posture.PALM, "✋ долоня"),
 )
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Стан однієї руки (анти-дриґання)
+# ─────────────────────────────────────────────────────────────────────────────
+class _HandState:
+    """Debounce жесту однієї руки: кандидат -> активний жест після stable_time."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self.candidate = Posture.NONE
+        self.candidate_since: Optional[float] = None
+        self.active = Posture.NONE
+        self.last_seen: Optional[float] = None
+
+    def advance(self, posture: Optional[Posture], now: float, config: GestureConfig) -> bool:
+        """
+        Оновлює стан. posture=None — руки в кадрі немає.
+        Повертає True, якщо рука "присутня" (видно зараз або зникла < hand_lost_timeout тому).
+        """
+        if posture is None:
+            if self.last_seen is not None and (now - self.last_seen) < config.hand_lost_timeout:
+                return True                      # блимнула — тримаємо попередній жест
+            self.reset()
+            return False
+
+        self.last_seen = now
+        if posture is not self.candidate:
+            self.candidate = posture
+            self.candidate_since = now
+        if self.candidate_since is not None and (now - self.candidate_since) >= config.stable_time:
+            self.active = self.candidate
+        return True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -337,26 +403,26 @@ class GestureMapper:
     def __init__(
         self,
         config: Optional[GestureConfig] = None,
-        bindings: Optional[Dict[Posture, GestureBinding]] = None,
+        command_table: Optional[Bindings] = None,
+        move_table: Optional[Bindings] = None,
     ) -> None:
         self.config = config or GestureConfig()
-        self.bindings = bindings if bindings is not None else default_bindings(self.config)
+        self.command_bindings = command_table if command_table is not None else command_bindings(self.config)
+        self.move_bindings = move_table if move_table is not None else move_bindings(self.config)
+        self._states: Dict[str, _HandState] = {role: _HandState() for role in ROLES}
         self.reset()
 
     # ------------------------------------------------------------------ state
     def reset(self) -> None:
         """Скидає внутрішній стан (наприклад, після реєстрації нового хазяїна)."""
-        self._candidate = Posture.NONE
-        self._candidate_since: Optional[float] = None
-        self._active = Posture.NONE
+        for state in self._states.values():
+            state.reset()
         self._last_hand_time: Optional[float] = None
         self._last_owner_time: Optional[float] = None
-        self._yaw_state = 0.0
-        self._last_yaw_time: Optional[float] = None
         self.last_command = HOVER_COMMAND
 
     # ------------------------------------------------------------------ руки
-    def _user_hand_label(self, label) -> str:
+    def user_hand_label(self, label) -> str:
         """
         Мітка руки з погляду КОРИСТУВАЧА.
 
@@ -369,53 +435,42 @@ class GestureMapper:
             return label
         return "Right" if label == "Left" else "Left"
 
-    def _select_hand(self, hands) -> Optional[dict]:
-        """Обирає руку для керування: спершу потрібну (права), потім будь-яку з жестом."""
+    def _side_of_image_half(self, on_image_left: bool) -> str:
+        """Яка рука користувача зазвичай з'являється в лівій/правій половині кадру."""
+        if self.config.image_mirrored:
+            return "Left" if on_image_left else "Right"
+        return "Right" if on_image_left else "Left"       # недзеркальний кадр
+
+    def _assign_hands(self, hands, width: float) -> Dict[str, Optional[dict]]:
+        """Розкладає руки за ролями: {"command": hand|None, "move": hand|None}."""
         prepared = []
         for hand in hands or ():
             pts = normalize_hand(hand.get("points"))
             if pts is None:
                 continue
-            prepared.append({"points": pts, "label": self._user_hand_label(hand.get("label"))})
+            prepared.append({"points": pts, "label": self.user_hand_label(hand.get("label"))})
 
-        if not prepared:
-            return None
+        by_side: Dict[str, dict] = {}
+        if len(prepared) >= 2:
+            first, second = prepared[0], prepared[1]
+            if {first["label"], second["label"]} == {"Left", "Right"}:
+                by_side = {first["label"]: first, second["label"]: second}
+            else:
+                # обом дали однакову мітку — сторону визначає позиція в кадрі
+                image_left, image_right = sorted(
+                    (first, second), key=lambda h: palm_center(h["points"])[0])
+                by_side = {
+                    self._side_of_image_half(True): image_left,
+                    self._side_of_image_half(False): image_right,
+                }
+        elif prepared:
+            hand = prepared[0]
+            side = hand["label"]
+            if side not in ("Left", "Right"):
+                side = self._side_of_image_half(palm_center(hand["points"])[0] < width / 2.0)
+            by_side[side] = hand
 
-        preferred = self.config.prefer_hand
-        if preferred:
-            for hand in prepared:
-                if hand["label"].lower() == preferred.lower():
-                    return hand
-
-        # немає потрібної руки — беремо першу, де взагалі видно жест
-        for hand in prepared:
-            if classify_posture(hand["points"]) is not Posture.NONE:
-                return hand
-        return prepared[0]
-
-    # ------------------------------------------------------------------ yaw
-    def _yaw_rate(self, points: Sequence[Point], frame_width: float) -> float:
-        """Поворот корпусу від горизонтального зміщення руки в кадрі."""
-        cfg = self.config
-        if not cfg.yaw_from_hand or cfg.yaw_gain <= 0 or frame_width <= 0:
-            return 0.0
-
-        cx, _ = palm_center(points)
-        offset = (cx - frame_width / 2.0) / (frame_width / 2.0)   # -1 .. +1
-        offset = max(-1.0, min(1.0, offset))
-        magnitude = abs(offset)
-        if magnitude <= cfg.yaw_deadzone:
-            return 0.0
-
-        scaled = (magnitude - cfg.yaw_deadzone) / (1.0 - cfg.yaw_deadzone)
-        sign = 1.0 if offset > 0 else -1.0
-        if not cfg.image_mirrored:
-            # недзеркальний кадр: те, що праворуч від користувача, ліворуч у кадрі
-            sign = -sign
-        if cfg.yaw_invert:
-            sign = -sign
-        return sign * scaled * cfg.yaw_gain
-
+        return {role: by_side.get(self.config.side_for(role)) for role in ROLES}
 
     # ------------------------------------------------------------------ update
     def update(self, hands, frame_shape, now: Optional[float] = None,
@@ -424,76 +479,98 @@ class GestureMapper:
         Головна функція: руки + розмір кадру + час -> DroneCommand.
 
         owner_present — чи бачимо ХАЗЯЇНА (не руку!). Від цього залежить авто-посадка:
-        хазяїн у кадрі, але руки не видно -> просто hover. Якщо None, вважаємо, що
+        хазяїн у кадрі, але рук не видно -> просто hover. Якщо None, вважаємо, що
         хазяїн присутній, коли є хоч одна рука (зворотна сумісність).
         """
         now = now if now is not None else _now()
         cfg = self.config
         width = float(frame_shape[1]) if frame_shape and len(frame_shape) >= 2 else 0.0
 
-        hand = self._select_hand(hands)
+        by_role = self._assign_hands(hands, width)
+        any_hand = any(hand is not None for hand in by_role.values())
         if owner_present is None:
-            owner_present = hand is not None
+            owner_present = any_hand
         if owner_present:
             self._last_owner_time = now
+        if any_hand:
+            self._last_hand_time = now
 
-        if hand is None:
+        present: Dict[str, bool] = {}
+        for role in ROLES:
+            hand = by_role[role]
+            posture = classify_posture(hand["points"]) if hand is not None else None
+            present[role] = self._states[role].advance(posture, now, cfg)
+
+        if not any(present.values()):
             return self._no_hand_command(now, owner_present)
 
-        self._last_hand_time = now
-        posture = classify_posture(hand["points"])
-
-        # анти-дриґання: жест стає активним лише після stable_time
-        if posture is not self._candidate:
-            self._candidate = posture
-            self._candidate_since = now
-        if self._candidate_since is not None and (now - self._candidate_since) >= cfg.stable_time:
-            self._active = self._candidate
-
-        active = self._active
-        binding = self.bindings.get(active)
-
-        if binding is None:
-            command = DroneCommand((0.0, 0.0, 0.0, 0.0, HOVER), active, "HOLD (no gesture)")
-            self.last_command = command
-            return command
-
-        yaw_rate = 0.0
-        if binding.allow_yaw:
-            yaw_rate = self._smooth_yaw(self._yaw_rate(hand["points"], width), now)
-
-        command = binding.as_command(active, yaw_rate)
+        command = self._compose(present)
         self.last_command = command
         return command
 
-    def _smooth_yaw(self, target: float, now: float) -> float:
-        """Експоненційне згладжування yaw_rate (щоб дрон не смикався)."""
-        dt = 0.0 if self._last_yaw_time is None else max(0.0, min(now - self._last_yaw_time, 0.5))
-        self._last_yaw_time = now
-        alpha = 1.0 if dt <= 0 else 1.0 - math.exp(-dt / 0.15)
-        self._yaw_state += (target - self._yaw_state) * alpha
-        return self._yaw_state
+    def _compose(self, present: Dict[str, bool]) -> DroneCommand:
+        """Склеює жести двох рук в один вектор."""
+        tables = {ROLE_COMMAND: self.command_bindings, ROLE_MOVE: self.move_bindings}
+        postures: Dict[str, Posture] = {}
+        bindings: Dict[str, Optional[GestureBinding]] = {}
+        for role in ROLES:
+            posture = self._states[role].active if present[role] else Posture.NONE
+            postures[role] = posture
+            bindings[role] = tables[role].get(posture) if present[role] else None
+
+        vx = vy = vz = yaw = 0.0
+        action = HOVER
+        labels: List[str] = []
+        for role in ROLES:
+            binding = bindings[role]
+            if binding is None:
+                continue
+            vx += binding.vx
+            vy += binding.vy
+            vz += binding.vz
+            yaw += binding.yaw
+            if action == HOVER and binding.action != HOVER:
+                action = binding.action
+            labels.append(binding.label)
+
+        if action != HOVER:            # TAKEOFF / LAND мають пріоритет над рухом
+            vx = vy = vz = yaw = 0.0
+            labels = [ACTION_NAMES.get(action, "ACTION")]
+
+        # "HOVER"/"STOP" показуємо лише коли немає корисніших міток
+        useful = [name for name in labels if name not in ("HOVER", "STOP")]
+        if useful:
+            label = " + ".join(useful)
+        else:
+            label = labels[0] if labels else "HOLD (no gesture)"
+
+        primary = postures[ROLE_COMMAND] if bindings[ROLE_COMMAND] is not None else postures[ROLE_MOVE]
+        return DroneCommand(
+            (round(vx, 4), round(vy, 4), round(vz, 4), round(yaw, 4), int(action)),
+            primary,
+            label,
+            "gesture",
+            self._detail(present, postures),
+        )
+
+    def _detail(self, present: Dict[str, bool], postures: Dict[str, Posture]) -> str:
+        """Текст "L:POINT R:VICTORY" — що показує кожна рука (ліва завжди перша)."""
+        by_side = {}
+        for role in ROLES:
+            by_side[self.config.side_for(role)] = str(postures[role]) if present[role] else "-"
+        return f"L:{by_side['Left']} R:{by_side['Right']}"
 
     def _no_hand_command(self, now: float, owner_present: bool) -> DroneCommand:
         """
-        Руки немає.
-          * коротке пропадання (< hand_lost_timeout) — тримаємо попередню команду,
-            щоб один кадр без детекції не переривав маневр;
-          * далі hover;
+        Жодної руки (довше за hand_lost_timeout).
+          * hover;
           * хазяїна не видно довше auto_land_after — LAND.
         """
         cfg = self.config
         lost_for = None if self._last_hand_time is None else now - self._last_hand_time
 
-        if (lost_for is not None and lost_for < cfg.hand_lost_timeout
-                and self._active is not Posture.NONE and self.last_command.origin == "gesture"):
-            return self.last_command
-
-        self._candidate = Posture.NONE
-        self._candidate_since = None
-        self._active = Posture.NONE
-        self._yaw_state = 0.0
-        self._last_yaw_time = None
+        for state in self._states.values():
+            state.reset()
 
         owner_gone_for = None if self._last_owner_time is None else now - self._last_owner_time
         if (cfg.auto_land_after > 0 and not owner_present and owner_gone_for is not None
@@ -520,13 +597,19 @@ def describe_command(command: Optional[DroneCommand]) -> str:
     return f"{command.label} {command.to_text()}"
 
 
-def format_gesture_table(bindings: Optional[Dict[Posture, GestureBinding]] = None) -> str:
-    """Текстова таблиця жестів (для --help та README)."""
-    bindings = bindings or default_bindings()
-    lines = []
-    for posture, human, _ in GESTURE_HELP:
-        binding = bindings.get(posture)
-        vector = binding.as_command(posture).to_text() if binding else "—"
-        lines.append(f"  {human:<30} {vector:<34} {binding.label if binding else '—'}")
-    return "\n".join(lines)
+def hand_title(config: GestureConfig, role: str) -> str:
+    """Назва руки для таблиць: ЛІВА / ПРАВА."""
+    return "ЛІВА" if config.side_for(role) == "Left" else "ПРАВА"
 
+
+def format_gesture_table(config: Optional[GestureConfig] = None) -> str:
+    """Текстова таблиця жестів (для --help та README)."""
+    cfg = config or GestureConfig()
+    tables = {ROLE_COMMAND: command_bindings(cfg), ROLE_MOVE: move_bindings(cfg)}
+    lines = []
+    for role, posture, human in GESTURE_HELP:
+        binding = tables[role].get(posture)
+        vector = binding.as_command(posture).to_text() if binding else "—"
+        label = binding.label if binding else "—"
+        lines.append(f"  {hand_title(cfg, role):<6} {human:<22} {vector:<34} {label}")
+    return "\n".join(lines)

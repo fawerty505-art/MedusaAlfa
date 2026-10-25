@@ -22,7 +22,7 @@ COLOR_MUTED = (150, 156, 168)
 COLOR_ACCENT = (0, 220, 255)
 PANEL_BG = (24, 26, 31)
 
-PANEL_WIDTH = 330
+PANEL_WIDTH = 400
 LINE_HEIGHT = 16
 
 
@@ -107,7 +107,7 @@ def draw_drone_panel(
     else:
         gesture_color = COLOR_WARN if not enabled else COLOR_TEXT
         _put(frame, "GESTURE : ", tx, ty, COLOR_MUTED)
-        _put(frame, f"{command.posture} -> {command.label}", tx + 68, ty, gesture_color)
+        _put(frame, f"{command.gesture_text} -> {command.label}", tx + 68, ty, gesture_color, 0.34)
         ty += LINE_HEIGHT
         _put(frame, "VECTOR  : ", tx, ty, COLOR_MUTED)
         _put(frame, command.to_text(), tx + 68, ty,

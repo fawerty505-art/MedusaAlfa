@@ -16,11 +16,11 @@ from typing import Optional
 from .controller import GestureDroneController
 from .drone_link import DroneLink
 from .esp32_stream import DEFAULT_IP, DEFAULT_PORT
-from .gestures import GESTURE_HELP, GestureConfig, GestureMapper, format_gesture_table
+from .gestures import GestureConfig, GestureMapper, format_gesture_table
 from .paths import ensure_project_dirs
 from .sim_launcher import DEFAULT_HTTP_PORT, DEFAULT_SIM_HOST, DEFAULT_WS_PORT, SimLauncher
 
-GESTURE_LIST = "\n".join(f"  {human:<32} {desc}" for _, human, desc in GESTURE_HELP)
+GESTURE_LIST = format_gesture_table()
 
 
 def build_parser(default_source: str = "webcam") -> argparse.ArgumentParser:
@@ -31,9 +31,10 @@ def build_parser(default_source: str = "webcam") -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Жести (права рука, кількість розігнутих пальців):\n"
+            "Жести двома руками (кількість розігнутих пальців):\n"
+            "  ЛІВА рука = команди (зліт/посадка/поворот), ПРАВА рука = рух.\n"
             f"{GESTURE_LIST}\n\n"
-            "Додатково: зміщення руки ліворуч/праворуч від центру кадру = поворот (yaw).\n"
+            "Жести обох рук комбінуються (напр. права 'вперед' + ліва 'поворот вправо').\n"
             "Клавіші у вікні відео: [G] жести ON/OFF, [R] реєстрація хазяїна, [D] debug,\n"
             "                     [C] скинути профіль, [Q]/[Esc] вихід\n\n"
             "Приклади:\n"
@@ -63,19 +64,14 @@ def build_parser(default_source: str = "webcam") -> argparse.ArgumentParser:
 
     gst = parser.add_argument_group("жести та команди")
     gst.add_argument("--no-gestures", action="store_true", help="не керувати дроном (тільки CV)")
-    gst.add_argument("--hand", choices=["Right", "Left", "any"], default="Right",
-                     help="яка рука керує (default: Right)")
-    gst.add_argument("--no-yaw-from-hand", action="store_true",
-                     help="вимкнути поворот від зміщення руки в кадрі")
-    gst.add_argument("--yaw-gain", type=float, default=55.0, help="°/с на максимальному відхиленні (default: 55)")
-    gst.add_argument("--yaw-deadzone", type=float, default=0.22, help="мертва зона повороту 0..1 (default: 0.22)")
-    gst.add_argument("--yaw-invert", action="store_true", help="інвертувати напрямок повороту")
+    gst.add_argument("--swap-hands", action="store_true",
+                     help="поміняти ролі рук (права = команди, ліва = рух) — для лівші")
     gst.add_argument("--mirrored", action="store_true",
                      help="кадр дзеркальний (selfie-режим); за замовчуванням webcam/ESP32 — недзеркальні")
-    gst.add_argument("--approach-speed", type=float, default=1.5, help="м/с, жест V (default: 1.5)")
-    gst.add_argument("--retreat-speed", type=float, default=1.2, help="м/с, жест три пальці (default: 1.2)")
-    gst.add_argument("--climb-speed", type=float, default=0.9, help="м/с вгору (default: 0.9)")
-    gst.add_argument("--descend-speed", type=float, default=0.9, help="м/с вниз (default: 0.9)")
+    gst.add_argument("--forward-speed", type=float, default=1.5, help="м/с вперед (default: 1.5)")
+    gst.add_argument("--backward-speed", type=float, default=1.2, help="м/с назад (default: 1.2)")
+    gst.add_argument("--strafe-speed", type=float, default=1.2, help="м/с вліво/вправо (default: 1.2)")
+    gst.add_argument("--yaw-speed", type=float, default=60.0, help="°/с поворот вліво/вправо (default: 60)")
     gst.add_argument("--stable-time", type=float, default=0.18,
                      help="с, скільки жест має протриматись (default: 0.18)")
     gst.add_argument("--auto-land", type=float, default=8.0,
@@ -87,18 +83,14 @@ def build_parser(default_source: str = "webcam") -> argparse.ArgumentParser:
 
 def _gesture_config(args: argparse.Namespace) -> GestureConfig:
     return GestureConfig(
-        approach_speed=args.approach_speed,
-        retreat_speed=args.retreat_speed,
-        climb_speed=args.climb_speed,
-        descend_speed=args.descend_speed,
-        yaw_from_hand=not args.no_yaw_from_hand,
-        yaw_gain=args.yaw_gain,
-        yaw_deadzone=args.yaw_deadzone,
-        yaw_invert=args.yaw_invert,
+        forward_speed=args.forward_speed,
+        backward_speed=args.backward_speed,
+        strafe_speed=args.strafe_speed,
+        yaw_speed=args.yaw_speed,
         image_mirrored=args.mirrored,
+        swap_hands=args.swap_hands,
         stable_time=args.stable_time,
         auto_land_after=args.auto_land,
-        prefer_hand="" if args.hand == "any" else args.hand,
     )
 
 
@@ -111,9 +103,11 @@ def _banner(args, http_url: Optional[str], ws_url: str) -> None:
     print(f"  Симулятор        : {http_url or 'не запускався (--no-sim)'}")
     print(f"  Керування        : {ws_url}")
     print(f"  Жести            : {'OFF (--no-gestures)' if args.no_gestures else 'ON'}"
-          f" | рука: {args.hand} | стабільність {args.stable_time:.2f} c")
+          f" | стабільність {args.stable_time:.2f} c")
     print("-" * 72)
-    print("  Жести: ✋ hover  ✊ land  ☝️ takeoff  ✌️ вперед  🤟 назад  👍 вгору  🤘 вниз")
+    cmd_hand, move_hand = ("ПРАВА", "ЛІВА") if args.swap_hands else ("ЛІВА", "ПРАВА")
+    print(f"  {cmd_hand} рука (команди): ☝️ зліт  ✊ посадка  ✌️ поворот вліво  ✋ поворот вправо")
+    print(f"  {move_hand} рука (рух)   : ☝️ вперед  ✌️ назад  ✊ вліво  ✋ вправо")
     print("  Клавіші: [G] жести ON/OFF  [R] реєстрація  [D] debug  [C] скинути  [Q] вихід")
     print("=" * 72)
 
@@ -124,8 +118,8 @@ def main(argv=None, default_source: str = "webcam") -> int:
     args = parser.parse_args(argv)
 
     if args.gestures_table:
-        print("Жести (кількість розігнутих пальців правої руки):")
-        print(format_gesture_table())
+        print("Жести двома руками (кількість розігнутих пальців):")
+        print(format_gesture_table(_gesture_config(args)))
         return 0
 
     ensure_project_dirs()
