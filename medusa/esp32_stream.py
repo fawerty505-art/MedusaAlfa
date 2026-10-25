@@ -2,7 +2,8 @@
 """Low-latency client for the ESP32 TCP stream (big-endian length + JPEG).
 
 Protocol: each frame is a 4-byte unsigned big-endian JPEG length, followed by
-exactly that many JPEG bytes. The receiver thread keeps only the newest frame.
+exactly that many JPEG bytes. Frames are rotated 90 degrees clockwise, and the
+receiver thread keeps only the newest frame.
 """
 
 import argparse
@@ -97,6 +98,7 @@ class ESP32Stream:
                         break
                     frame = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
                     if frame is not None:
+                        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
                         self._set_frame(frame)
             except (OSError, ValueError) as exc:
                 if self.started:

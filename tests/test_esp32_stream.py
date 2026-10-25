@@ -76,7 +76,7 @@ class ESP32StreamTests(unittest.TestCase):
         self.assertTrue(self.stream.wait_for_first_frame(timeout=5.0))
         frame = self.stream.read()
         self.assertIsNotNone(frame)
-        self.assertEqual(frame.shape, (240, 320, 3))
+        self.assertEqual(frame.shape, (320, 240, 3))
         self.assertEqual(self.server.handshakes, [b"START\n"])
 
     def test_receiver_continues_updating_latest_frame(self):
