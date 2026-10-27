@@ -25,6 +25,9 @@ def make_jpeg(value):
 
 class FakeESP32Handler(socketserver.BaseRequestHandler):
     def handle(self):
+        self.request.settimeout(2.0)
+        if self.request.recv(6) != b"START\n":
+            return
         for i in range(300):
             jpeg = make_jpeg((i * 10) % 256)
             packet = struct.pack(">I", len(jpeg)) + jpeg
@@ -54,8 +57,8 @@ class ESP32StreamTests(unittest.TestCase):
         self.server.server_close()
 
     def test_defaults_match_supplied_connection_example(self):
-        self.assertEqual(DEFAULT_IP, "10.21.243.252")
-        self.assertEqual(DEFAULT_PORT, 5000)
+        self.assertEqual(DEFAULT_IP, "10.52.127.86")
+        self.assertEqual(DEFAULT_PORT, 80)
 
     def test_receives_first_length_prefixed_jpeg_frame(self):
         self.stream = ESP32Stream(self.host, self.port)
@@ -90,4 +93,3 @@ class ESP32StreamTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

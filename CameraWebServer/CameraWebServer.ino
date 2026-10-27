@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "esp_camera.h"
 #include <WiFi.h>
+#include "esp_wifi.h"
 #include "board_config.h"
 #include "wifi_secrets.h"
 
@@ -94,13 +95,13 @@ bool initCamera() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   
-  config.xclk_freq_hz = 20000000;
+  config.xclk_freq_hz = 20000000;  // 20MHz/24MHz is the safe S3 sweet spot
   config.frame_size = FRAMESIZE_QVGA;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.grab_mode = CAMERA_GRAB_LATEST;
+  config.jpeg_quality = 14;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.jpeg_quality = 30;
-  config.fb_count = 2;
+  config.fb_count = 3;
+  config.grab_mode = CAMERA_GRAB_LATEST;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -110,12 +111,19 @@ bool initCamera() {
 
   sensor_t *s = esp_camera_sensor_get();
   if (s->id.PID == OV3660_PID) {
+    // Unlock the sensor's internal PLL from the stock 10MHz cap used in older ESP32 tuning.
+    // This doubles the effective PCLK for VGA/QVGA and removes the frame-timing stall seen in indoor light.
+    s->set_pll(s, false, 30, 1, 3, false, 0, true, 5);
+    s->set_ae_level(s, 0);
+    s->set_aec2(s, 0);
+    s->set_gainceiling(s, (gainceiling_t)2);
+
     s->set_vflip(s, 1);
     s->set_brightness(s, 1);
     s->set_sharpness(s, 2);
     s->set_contrast(s, 1);
   }
-  Serial.printf("Camera sensor PID: 0x%04x, configured for QVGA streaming\n",
+  Serial.printf("Camera sensor PID: 0x%04x, configured for QVGA streaming with PSRAM ring buffer\n",
                 s->id.PID);
   
   return true;
@@ -162,6 +170,7 @@ void setup() {
   for (int attempt = 1; attempt <= 2 && !connected; attempt++) {
     Serial.printf("Connecting to phone hotspot (attempt %d/2)", attempt);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    esp_wifi_set_ps(WIFI_PS_NONE);
 
     const unsigned long wifiTimeout = millis() + 20000;
     while (WiFi.status() != WL_CONNECTED && millis() < wifiTimeout) {

@@ -857,7 +857,8 @@ def parse_args():
     parser.add_argument("--source", choices=["esp32", "webcam"], default="esp32",
                         help="esp32 — відео з ESP32-CAM; webcam — локальна камера")
     parser.add_argument("--ip", default=DEFAULT_IP, help=f"IP ESP32-CAM (default: {DEFAULT_IP})")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="TCP stream port (default: 5000)")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT,
+                        help=f"TCP stream port (default: {DEFAULT_PORT})")
     return parser.parse_args()
 
 

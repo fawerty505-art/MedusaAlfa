@@ -15,8 +15,8 @@ import time
 import cv2
 import numpy as np
 
-DEFAULT_IP = "10.21.243.252"
-DEFAULT_PORT = 5000
+DEFAULT_IP = "10.52.127.86"
+DEFAULT_PORT = 80
 MAX_FRAME_BYTES = 8 * 1024 * 1024
 
 
@@ -53,7 +53,7 @@ class ESP32Stream:
     def _set_connected(self, state, message):
         if state != self.connected:
             self.connected = state
-            print(f"📡 ESP32-CAM: {message}")
+            print(f"ESP32-CAM: {message}")
 
     def _set_frame(self, frame):
         with self.lock:
@@ -67,15 +67,19 @@ class ESP32Stream:
             sock.settimeout(self.connect_timeout)
             try:
                 sock.connect((self.host, self.port))
+                sock.sendall(b"START\n")
                 sock.settimeout(1.0)
             except OSError as exc:
                 sock.close()
-                self._set_connected(False, f"не вдалося підключитися до {self.host}:{self.port} ({exc}), повтор...")
+                self._set_connected(
+                    False,
+                    f"cannot connect to {self.host}:{self.port} ({exc}); retrying",
+                )
                 time.sleep(1.0)
                 continue
 
             self._socket = sock
-            self._set_connected(True, f"підключено до {self.host}:{self.port}")
+            self._set_connected(True, f"connected to {self.host}:{self.port}")
             try:
                 while self.started:
                     header = recv_exact(sock, 4, lambda: self.started)
@@ -102,7 +106,7 @@ class ESP32Stream:
                     self._socket = None
 
             if self.started:
-                self._set_connected(False, "потік перервано, перепідключення...")
+                self._set_connected(False, "stream interrupted; reconnecting")
                 time.sleep(0.5)
 
     def wait_for_first_frame(self, timeout=10.0):

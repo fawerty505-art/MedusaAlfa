@@ -26,7 +26,7 @@ def main():
     parser.add_argument(
         "ip",
         nargs="?",
-        default="10.21.246.241",
+        default="10.52.127.86",
         help="ESP32 IP address (default: last address printed by the board)",
     )
     parser.add_argument("--port", type=int, default=80, help="ESP32 port (default: 80)")

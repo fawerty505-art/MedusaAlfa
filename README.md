@@ -68,7 +68,7 @@ python3 medusa_webcam.py
 **Камера ESP32-CAM замість веб-камери:**
 
 ```bash
-python3 medusa_eye.py --ip 10.21.243.252 --port 5000
+python3 medusa_eye.py --ip 10.52.127.86 --port 80
 ```
 
 ---
@@ -111,8 +111,16 @@ sudo apt install -y python3-venv python3-dev build-essential cmake \
 
 **Windows**
 
-1. Встановіть [CMake](https://cmake.org/download/) та **Visual Studio Build Tools** (Desktop development with C++).
-2. Використовуйте Python 3.10–3.12 (найкраща сумісність із `dlib`/`mediapipe`).
+Для Windows використовуйте Python 3.13 та готовий `dlib-bin` wheel, щоб не
+компілювати dlib із вихідного коду:
+
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip wheel "setuptools<81"
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install dlib-bin face-recognition-models
+.\.venv\Scripts\python.exe -m pip install --no-deps face-recognition
+```
 
 ### 2. Python-середовище
 
@@ -132,8 +140,11 @@ python3 -m pip install -r requirements.txt
 `requirements.txt` містить:
 
 ```
-opencv-python   mediapipe   ultralytics   face-recognition   numpy   websockets
+opencv-python   mediapipe   ultralytics   numpy   websockets
 ```
+
+На Windows `face-recognition` встановлюється окремо командами вище, щоб
+використати готовий `dlib-bin` замість компіляції dlib.
 
 ### 3. Моделі (завантажуються автоматично)
 
@@ -167,10 +178,20 @@ python3 medusa_webcam.py
 ### Варіант B — ESP32-CAM
 
 ```bash
-python3 medusa_eye.py                          # IP/TCP зі сталого значення 10.21.243.252:5000
-python3 medusa_eye.py --ip 192.168.1.50 --port 5000
+python3 medusa_eye.py --ip 192.168.1.50 --port 80   # замініть на IP з Serial Monitor
 python3 medusa_eye.py --source webcam          # те саме, що варіант A
 ```
+
+On Windows PowerShell, from the repository root, use:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+py .\medusa_eye.py --ip 192.168.1.50 --port 80
+```
+
+Replace `192.168.1.50` with the current IP printed by the ESP32. The firmware
+listens on TCP port 80 and expects the client to send `START` before streaming;
+`medusa_eye.py` handles that handshake automatically.
 
 ### Варіант C — симулятор уже запущений окремо
 
@@ -432,7 +453,7 @@ python3 medusa_webcam.py --gestures-table  # таблиця жестів і ве
 |---|---|---|
 | `--source {webcam,esp32}` | `webcam` (`medusa_eye.py`: `esp32`) | джерело відео |
 | `--camera N` | `0` | індекс локальної камери |
-| `--ip`, `--port` | `10.21.243.252`, `5000` | адреса ESP32-CAM |
+| `--ip`, `--port` | `10.52.127.86`, `80` | адреса ESP32-CAM; використовуйте актуальну IP з Serial Monitor |
 | `--no-sim` | — | не запускати симулятор (уже працює) |
 | `--no-browser` | — | не відкривати браузер |
 | `--http-port`, `--ws-port` | `8000`, `8765` | порти симулятора |
@@ -629,4 +650,3 @@ def _climb_rate(self, points, frame_height):
 
 Навчальний / дослідницький проєкт. Сторонні компоненти зберігають свої ліцензії:
 Ultralytics YOLOv8 (AGPL-3.0), MediaPipe (Apache-2.0), face_recognition (MIT), Three.js (MIT).
-
